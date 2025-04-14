@@ -25,8 +25,8 @@ load_dotenv()
 app = FastAPI(title="Resume and Job Description Processor")
 
 # Initialize processors
-csv_processor = JobDataProcessor("job_title_des.csv")
-job_matcher = JobMatcher("job_title_des.csv")
+csv_processor = JobDataProcessor("backend/job_title_des.csv")
+job_matcher = JobMatcher("backend/job_title_des.csv")
 llm_evaluator = LLMEvaluator(os.getenv("GEMINI_API_KEY"))  # Make sure to set this environment variable
 resume_improver = ResumeImprover(os.getenv("GEMINI_API_KEY"))
 

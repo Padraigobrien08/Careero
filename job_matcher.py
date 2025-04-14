@@ -46,15 +46,15 @@ class JobMatcher:
             for old_col, new_col in column_mapping.items():
                 if old_col in self.df.columns and new_col not in self.df.columns:
                     self.df[new_col] = self.df[old_col]
-                elif new_col in self.df.columns and old_col not in self.df.columns:
-                    self.df[old_col] = self.df[new_col]
             
-            # Use the 'description' column for processing
-            description_col = 'description' if 'description' in self.df.columns else 'Job Description'
+            # Ensure required columns exist
+            if 'description' not in self.df.columns:
+                raise Exception("Required column 'description' not found in the job data")
+            
             print(f"Final column names: {list(self.df.columns)}")
             
             # Clean and preprocess job descriptions
-            self.df['processed_description'] = self.df[description_col].apply(self.preprocess_text)
+            self.df['processed_description'] = self.df['description'].apply(self.preprocess_text)
             
             # Initialize TF-IDF vectorizer
             self.vectorizer = TfidfVectorizer(
