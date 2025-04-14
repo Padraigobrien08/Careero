@@ -556,7 +556,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, width: '100%', maxWidth: 'none' }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">
           {isSearchMode ? 'Search Results' : 'Top 25 Job Matches'}
@@ -565,8 +565,9 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => setAddJobDialogOpen(true)}
+          sx={{ px: 2, minWidth: 'auto', whiteSpace: 'nowrap' }}
         >
-          Add a Watched Job
+          Add a Job
         </Button>
       </Box>
 
@@ -786,36 +787,199 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                 {selectedJob.company} {selectedJob.location ? `• ${selectedJob.location}` : ''}
               </Typography>
             </DialogTitle>
+            
+            {/* Tabs for different content */}
+            <Tabs
+              value={activeTab}
+              onChange={(_, newValue) => setActiveTab(newValue)}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}
+            >
+              <Tab label="Job Details" />
+              {tailoredResume && <Tab label="Tailored Resume" />}
+              {coverLetter && <Tab label="Cover Letter" />}
+              {roadmap && roadmap.length > 0 && <Tab label="Career Roadmap" />}
+            </Tabs>
+            
             <DialogContent dividers>
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="h6" gutterBottom>Job Description</Typography>
-                <Typography paragraph>{selectedJob.description}</Typography>
-                
-                <Typography variant="h6" gutterBottom>Requirements</Typography>
-                <List>
-                  {selectedJob.requirements.map((req, index) => (
-                    <ListItem key={index} sx={{ py: 0 }}>
-                      <Typography>• {req}</Typography>
-                    </ListItem>
-                  ))}
-                </List>
-                
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Posted: {formatDate(selectedJob.postedDate)}
-                  </Typography>
-                  {selectedJob.salary && (
+              {/* Job Details Tab */}
+              {activeTab === 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="h6" gutterBottom>Job Description</Typography>
+                  <Typography paragraph>{selectedJob.description}</Typography>
+                  
+                  <Typography variant="h6" gutterBottom>Requirements</Typography>
+                  <List>
+                    {selectedJob.requirements.map((req, index) => (
+                      <ListItem key={index} sx={{ py: 0 }}>
+                        <Typography>• {req}</Typography>
+                      </ListItem>
+                    ))}
+                  </List>
+                  
+                  <Box sx={{ mt: 2 }}>
                     <Typography variant="body2" color="text.secondary">
-                      Salary: {selectedJob.salary}
+                      Posted: {formatDate(selectedJob.postedDate)}
                     </Typography>
-                  )}
-                  <Typography variant="body2" color="text.secondary">
-                    Match Score: {(selectedJob.similarityScore * 100).toFixed(1)}%
+                    {selectedJob.salary && (
+                      <Typography variant="body2" color="text.secondary">
+                        Salary: {selectedJob.salary}
+                      </Typography>
+                    )}
+                    <Typography variant="body2" color="text.secondary">
+                      Match Score: {(selectedJob.similarityScore * 100).toFixed(1)}%
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+              
+              {/* Tailored Resume Tab */}
+              {activeTab === 1 && tailoredResume && (
+                <Box sx={{ mt: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Button 
+                      variant="outlined" 
+                      startIcon={<Download />}
+                      onClick={() => {
+                        const text = tailoredResume.sections.map(section => 
+                          `${section.title}\n${section.content}\n\n`).join('');
+                        navigator.clipboard.writeText(text);
+                        alert('Resume copied to clipboard!');
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                  </Box>
+                  
+                  {tailoredResume.sections.map((section, index) => (
+                    <Box key={index} sx={{ mb: 3 }}>
+                      <Typography variant="h6" gutterBottom>{section.title}</Typography>
+                      <Typography paragraph style={{ whiteSpace: 'pre-line' }}>
+                        {section.content}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+              
+              {/* Cover Letter Tab */}
+              {activeTab === 2 && coverLetter && (
+                <Box sx={{ mt: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Button 
+                      variant="outlined" 
+                      startIcon={<Download />}
+                      onClick={() => {
+                        navigator.clipboard.writeText(coverLetter);
+                        alert('Cover letter copied to clipboard!');
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                  </Box>
+                  <Typography paragraph style={{ whiteSpace: 'pre-line' }}>
+                    {coverLetter}
                   </Typography>
                 </Box>
-              </Box>
+              )}
+              
+              {/* Roadmap Tab */}
+              {activeTab === 3 && roadmap && roadmap.length > 0 && (
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Development Roadmap for {selectedJob.title}
+                  </Typography>
+                  <Grid container spacing={3}>
+                    {roadmap.map((milestone, index) => (
+                      <Grid item xs={12} sm={6} key={index}>
+                        <Card>
+                          <CardContent>
+                            <Typography variant="h6" gutterBottom>
+                              {milestone.title}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" paragraph>
+                              {milestone.description}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" paragraph>
+                              Timeframe: {milestone.targetDate}
+                            </Typography>
+                            <Box sx={{ mb: 2 }}>
+                              <Typography variant="subtitle2" gutterBottom>
+                                Skills to Develop:
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                {milestone.skills.map((skill, i) => (
+                                  <Chip key={i} label={skill} size="small" />
+                                ))}
+                              </Box>
+                            </Box>
+                            <Box>
+                              <Typography variant="subtitle2" gutterBottom>
+                                Resources:
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                {milestone.resources.map((resource, i) => (
+                                  <Chip key={i} label={resource} size="small" variant="outlined" />
+                                ))}
+                              </Box>
+                            </Box>
+                          </CardContent>
+                          <CardActions>
+                            <Button
+                              startIcon={<AddIcon />}
+                              onClick={() => handleAddToRoadmap(milestone, true)}
+                            >
+                              Add to Career Roadmap
+                            </Button>
+                          </CardActions>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              )}
+              
+              {/* Loading State */}
+              {loadingFeature && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+                  <CircularProgress />
+                </Box>
+              )}
             </DialogContent>
+            
             <DialogActions>
+              {activeTab === 0 && (
+                <>
+                  <Button 
+                    onClick={() => handleTailorResume(selectedJob.id)}
+                    color="primary"
+                    variant="outlined"
+                    disabled={loadingFeature === 'resume'}
+                    startIcon={loadingFeature === 'resume' ? <CircularProgress size={20} /> : <Edit />}
+                  >
+                    Tailor My Resume
+                  </Button>
+                  <Button 
+                    onClick={() => handleGenerateCoverLetter(selectedJob.id)}
+                    color="primary" 
+                    variant="outlined"
+                    disabled={loadingFeature === 'coverLetter'}
+                    startIcon={loadingFeature === 'coverLetter' ? <CircularProgress size={20} /> : <Edit />}
+                  >
+                    Generate Cover Letter
+                  </Button>
+                  <Button 
+                    onClick={() => handleGenerateRoadmap(selectedJob.id)}
+                    color="primary" 
+                    variant="outlined"
+                    disabled={loadingFeature === 'roadmap'}
+                    startIcon={loadingFeature === 'roadmap' ? <CircularProgress size={20} /> : <Edit />}
+                  >
+                    Generate Roadmap
+                  </Button>
+                </>
+              )}
               <Button 
                 onClick={handleCloseJobDialog} 
                 color="primary" 

@@ -91,9 +91,15 @@ const ResumeEditor: React.FC = () => {
 
       const formData = new FormData();
       formData.append('file', previewFile);
+      
+      // Add a dummy token for authorization
+      const token = localStorage.getItem('authToken') || 'dummy-token';
 
-      const response = await fetch('http://localhost:8000/parse-resume', {
+      const response = await fetch('http://localhost:8000/upload-resume', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
 
@@ -102,14 +108,13 @@ const ResumeEditor: React.FC = () => {
       }
 
       const data = await response.json();
-      if (data.success) {
-        await fetchResumes();
-        setOpenUploadDialog(false);
-        setPreviewFile(null);
-      } else {
-        throw new Error('Failed to process resume');
-      }
+      console.log('Upload response:', data);  // Add logging to debug
+      
+      await fetchResumes();
+      setOpenUploadDialog(false);
+      setPreviewFile(null);
     } catch (err) {
+      console.error('Upload error:', err);  // Add error logging
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);

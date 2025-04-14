@@ -168,7 +168,7 @@ async def parse_resume(file: UploadFile = File(...)):
 async def get_resumes():
     try:
         # Read from the resumes.json file
-        resumes_file = "resumes.json"
+        resumes_file = os.path.join(os.getcwd(), "resumes.json")
         if not os.path.exists(resumes_file):
             return {"resumes": []}
             
@@ -206,13 +206,16 @@ async def get_resumes():
                     
         return {"resumes": sorted(resumes, key=lambda x: x["uploadedAt"], reverse=True)}
     except Exception as e:
+        logger.error(f"Error in get_resumes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/resumes/{resume_id}")
 async def get_resume(resume_id: str):
     try:
         # First try to find resume in resumes.json
-        resumes_file = "resumes.json"
+        resumes_file = os.path.join(os.getcwd(), "resumes.json")
+        logger.info(f"Looking for resume {resume_id} in {resumes_file}")
+        
         if os.path.exists(resumes_file):
             try:
                 with open(resumes_file, "r") as f:
@@ -222,6 +225,7 @@ async def get_resume(resume_id: str):
                 resume_record = next((r for r in resumes_data if r["id"] == resume_id), None)
                 
                 if resume_record and os.path.exists(resume_record["path"]):
+                    logger.info(f"Found resume {resume_id} in resumes.json")
                     # Get the file content as base64
                     with open(resume_record["path"], "rb") as f:
                         file_content = f.read()
@@ -252,8 +256,11 @@ async def get_resume(resume_id: str):
                         "parsed_content": parsed_content
                     }
             except json.JSONDecodeError:
+                logger.error(f"Invalid JSON in {resumes_file}")
                 # Continue to fallback method if JSON is invalid
                 pass
+        else:
+            logger.warning(f"Resumes file {resumes_file} not found")
         
         # Fallback to the old method: look for the file with any supported extension
         for ext in ['.pdf', '.docx']:
@@ -751,18 +758,31 @@ async def upload_resume(
         }
         
         # Save resume record
-        resumes_file = "resumes.json"
+        resumes_file = os.path.join(os.getcwd(), "resumes.json")
         resumes = []
         if os.path.exists(resumes_file):
             with open(resumes_file, "r") as f:
                 try:
                     resumes = json.load(f)
                 except json.JSONDecodeError:
+                    logger.error(f"Invalid JSON in {resumes_file}, starting with empty list")
                     resumes = []
+        
+        # Log for debugging
+        logger.info(f"Found {len(resumes)} existing resumes")
+        logger.info(f"Adding new resume with id: {resume_id}")
         
         resumes.append(resume_record)
         with open(resumes_file, "w") as f:
-            json.dump(resumes, f)
+            json.dump(resumes, f, indent=2)
+        
+        # Also save to the backend directory in case something is looking for it there
+        backend_resumes_file = os.path.join(os.getcwd(), "backend", "resumes.json")
+        os.makedirs(os.path.dirname(backend_resumes_file), exist_ok=True)
+        with open(backend_resumes_file, "w") as f:
+            json.dump(resumes, f, indent=2)
+        
+        logger.info(f"Saved {len(resumes)} resumes to {resumes_file} and {backend_resumes_file}")
         
         return {
             "id": resume_id,
