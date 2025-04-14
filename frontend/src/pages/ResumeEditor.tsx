@@ -22,6 +22,8 @@ import {
 import { Add, Delete, Description, Save, Visibility } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+
 interface Resume {
   id: string;
   name: string;
@@ -69,7 +71,7 @@ const ResumeEditor: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://localhost:8000/resumes');
+      const response = await fetch(`${API_BASE_URL}/resumes`);
       if (!response.ok) {
         throw new Error('Failed to fetch resumes');
       }
@@ -95,7 +97,7 @@ const ResumeEditor: React.FC = () => {
       // Add a dummy token for authorization
       const token = localStorage.getItem('authToken') || 'dummy-token';
 
-      const response = await fetch('http://localhost:8000/upload-resume', {
+      const response = await fetch(`${API_BASE_URL}/upload-resume`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -126,7 +128,7 @@ const ResumeEditor: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const response = await fetch(`http://localhost:8000/resumes/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/resumes/${id}`, {
         method: 'DELETE',
       });
 
@@ -160,7 +162,7 @@ const ResumeEditor: React.FC = () => {
       setError(null);
       setCurrentResume(resume);
       
-      const response = await fetch(`http://localhost:8000/resumes/${resume.id}`);
+      const response = await fetch(`${API_BASE_URL}/resumes/${resume.id}`);
       if (!response.ok) {
         throw new Error('Failed to fetch resume');
       }
@@ -177,7 +179,7 @@ const ResumeEditor: React.FC = () => {
 
   const handleDownloadResume = async (resume: Resume) => {
     try {
-      const response = await fetch(`http://localhost:8000/resumes/${resume.id}`);
+      const response = await fetch(`${API_BASE_URL}/resumes/${resume.id}`);
       if (!response.ok) {
         throw new Error('Failed to fetch resume');
       }

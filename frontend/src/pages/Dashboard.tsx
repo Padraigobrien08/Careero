@@ -30,6 +30,9 @@ import {
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 
+// Add this near the top imports
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+
 // Define types
 interface Resume {
   name: string;
@@ -108,7 +111,7 @@ const Dashboard: React.FC = () => {
     const fetchResume = async () => {
       try {
         // First try to fetch all resumes
-        const resumesResponse = await fetch('http://localhost:8000/resumes');
+        const resumesResponse = await fetch(`${API_BASE_URL}/resumes`);
         if (resumesResponse.ok) {
           const data = await resumesResponse.json();
           if (data.resumes && data.resumes.length > 0) {
@@ -116,7 +119,7 @@ const Dashboard: React.FC = () => {
             const mostRecentResume = data.resumes[0];
             
             // Then fetch the specific resume content
-            const resumeResponse = await fetch(`http://localhost:8000/resumes/${mostRecentResume.id}`);
+            const resumeResponse = await fetch(`${API_BASE_URL}/resumes/${mostRecentResume.id}`);
             if (resumeResponse.ok) {
               const resumeData = await resumeResponse.json();
               if (resumeData.parsed_content) {
@@ -187,7 +190,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchJobs = async () => {
       try {
-        const response = await fetch('http://localhost:8000/jobs');
+        const response = await fetch(`${API_BASE_URL}/jobs`);
         if (!response.ok) {
           throw new Error('Failed to fetch jobs');
         }

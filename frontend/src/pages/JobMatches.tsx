@@ -40,6 +40,8 @@ import {
   Add as AddIcon,
 } from '@mui/icons-material';
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+
 // Cache for job matches
 let cachedJobs: Job[] = []; // Initialize as empty array instead of null
 let lastFetchTime: number | null = null;
@@ -262,7 +264,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
         return;
       }
 
-      const response = await fetch('http://localhost:8000/jobs');
+      const response = await fetch(`${API_BASE_URL}/jobs`);
       if (!response.ok) {
         if (response.status === 404) {
           throw new Error('Please upload a resume first to see job matches');
@@ -294,7 +296,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       setIsSearching(true);
       setError(null);
       setIsSearchMode(true);
-      const response = await fetch(`http://localhost:8000/jobs/search?query=${encodeURIComponent(searchQuery)}`);
+      const response = await fetch(`${API_BASE_URL}/jobs/search?query=${encodeURIComponent(searchQuery)}`);
       if (!response.ok) {
         throw new Error('Failed to search jobs');
       }
@@ -345,7 +347,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
     // Calculate match score if not already calculated
     if (!jobScores[job.id]) {
       try {
-        const response = await fetch(`http://localhost:8000/jobs/${job.id}/match`, {
+        const response = await fetch(`${API_BASE_URL}/jobs/${job.id}/match`, {
           method: 'POST',
         });
         if (!response.ok) throw new Error('Failed to calculate match score');
@@ -370,7 +372,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
 
   const handleAddJob = async (jobData: Omit<Job, 'id' | 'postedDate' | 'similarityScore'>) => {
     try {
-      const response = await fetch('http://localhost:8000/jobs', {
+      const response = await fetch(`${API_BASE_URL}/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -411,7 +413,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleTailorResume = async (jobId: string) => {
     try {
       setLoadingFeature('resume');
-      const response = await fetch(`http://localhost:8000/jobs/${jobId}/tailor-resume`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/tailor-resume`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -435,7 +437,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateCoverLetter = async (jobId: string) => {
     try {
       setLoadingFeature('coverLetter');
-      const response = await fetch(`http://localhost:8000/jobs/${jobId}/generate-cover-letter`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-cover-letter`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -459,7 +461,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateRoadmap = async (jobId: string) => {
     try {
       setLoadingFeature('roadmap');
-      const response = await fetch(`http://localhost:8000/jobs/${jobId}/generate-roadmap`, {
+      const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-roadmap`, {
         method: 'POST',
       });
       if (!response.ok) {
