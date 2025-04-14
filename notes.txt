@@ -1,0 +1,13 @@
+Features I want to add:
+
+ - When you click on a job description: You can see the job description adn you also have buttons to choose from:
+        - "Tailor My Resume" - invokes an LLM designed to read your latest stored resume and then give you actionable insights to how you can tailor your resume to better fit this particular job
+        - "Generate Cover Letter": Simple as, Reads your Resume and the job description and generates a professional cover letter for you to add to your application
+        - "Develop Roadmap": Takes your resume and the job description, highlights the key gaps in your resume that are mentioned in the job description, Generates 5 Prjects/Certificates/actionable steps you can take to filling that gap in the resume (You should be able to directly add these to the "Career Milestones" Section in Career Roadmap)
+
+
+
+
+
+
+

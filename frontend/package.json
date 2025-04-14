@@ -1,0 +1,77 @@
+{
+  "name": "careeroos-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@emotion/react": "^11.11.3",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.15.6",
+    "@mui/material": "^5.15.6",
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^13.5.0",
+    "@types/jest": "^27.5.2",
+    "@types/node": "^16.18.68",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "axios": "^1.6.7",
+    "css-select": "5.1.0",
+    "css-what": "6.1.0",
+    "nth-check": "2.1.1",
+    "postcss": "8.4.35",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-dropzone": "^14.2.3",
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1",
+    "svgo": "3.2.0",
+    "typescript": "^4.9.5",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@types/babel__generator": "^7.6.8",
+    "@types/body-parser": "^1.19.5",
+    "@types/http-errors": "^2.0.4",
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/json-schema": "^7.0.15",
+    "@types/json5": "^0.0.30",
+    "@types/mime": "^3.0.4",
+    "@types/q": "^1.5.8",
+    "@types/serve-static": "^1.15.7",
+    "@types/uuid": "^10.0.0"
+  },
+  "resolutions": {
+    "nth-check": "^2.1.1",
+    "postcss": "^8.4.35",
+    "css-what": "^6.1.0",
+    "css-select": "^5.1.0",
+    "svgo": "^3.2.0",
+    "tough-cookie": "^4.1.3",
+    "webpack-dev-middleware": "^5.3.4",
+    "yargs-parser": "^21.1.1"
+  }
+}
