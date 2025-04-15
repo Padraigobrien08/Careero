@@ -4,14 +4,63 @@ from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import uvicorn
-from job_matcher import JobMatcher
-from llm_evaluator import LLMEvaluator
-from resume_parser import ResumeParser
+import sys
 import os
+
+# Add parent directory to path to allow imports from root directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Now try to import local modules
+try:
+    from job_matcher import JobMatcher
+    from llm_evaluator import LLMEvaluator
+    from resume_parser import ResumeParser
+    from pdf_processor import PDFProcessor
+    from gemini_service import tailor_resume, generate_cover_letter, generate_roadmap as generate_roadmap_suggestions
+except ImportError:
+    # If imports fail, use relative imports for modules in the same directory
+    import importlib.util
+    import os
+    
+    def import_module_from_file(module_name, file_path):
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    
+    # Get the directory of this file
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(current_dir)
+    
+    # Import modules from parent directory
+    JobMatcher = import_module_from_file("job_matcher", os.path.join(parent_dir, "job_matcher.py")).JobMatcher
+    ResumeParser = import_module_from_file("resume_parser", os.path.join(parent_dir, "resume_parser.py")).ResumeParser
+    
+    # Only import these if they exist
+    try:
+        LLMEvaluator = import_module_from_file("llm_evaluator", os.path.join(parent_dir, "llm_evaluator.py")).LLMEvaluator
+    except:
+        LLMEvaluator = None
+        
+    try:
+        gemini_module = import_module_from_file("gemini_service", os.path.join(parent_dir, "gemini_service.py"))
+        tailor_resume = gemini_module.tailor_resume
+        generate_cover_letter = gemini_module.generate_cover_letter
+        generate_roadmap_suggestions = gemini_module.generate_roadmap
+    except:
+        # Create dummy functions if imports fail
+        def tailor_resume(*args, **kwargs): return {"sections": []}
+        def generate_cover_letter(*args, **kwargs): return ""
+        def generate_roadmap_suggestions(*args, **kwargs): return []
+        
+    try:
+        PDFProcessor = import_module_from_file("pdf_processor", os.path.join(parent_dir, "pdf_processor.py")).PDFProcessor
+    except:
+        PDFProcessor = None
+
 from dotenv import load_dotenv
 import pandas as pd
 import json
-from pdf_processor import PDFProcessor
 import shutil
 from datetime import datetime
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,7 +69,6 @@ from pathlib import Path
 import secrets
 import magic  # For file type validation
 import uuid
-from gemini_service import tailor_resume, generate_cover_letter, generate_roadmap as generate_roadmap_suggestions
 import logging
 import logging.config
 
@@ -73,13 +121,37 @@ def validate_file_size(file: UploadFile) -> bool:
 
 # Initialize components
 resume_parser = ResumeParser()
-# Use the CSV file from the backend directory
+
+# Find the job_title_des.csv file in either backend directory or root
+csv_paths = ['backend/job_title_des.csv', 'job_title_des.csv']
+csv_file = None
+for path in csv_paths:
+    if os.path.exists(path):
+        csv_file = path
+        break
+
+if not csv_file:
+    # If no CSV file found, create a minimal one
+    csv_file = 'backend/job_title_des.csv'
+    os.makedirs(os.path.dirname(csv_file), exist_ok=True)
+    pd.DataFrame({
+        'id': ['sample-id'],
+        'title': ['Software Engineer'],
+        'company': ['Sample Company'],
+        'location': ['Remote'],
+        'salary': [100000],
+        'description': ['This is a sample job description.'],
+        'requirements': ['Python;JavaScript;SQL'],
+        'postedDate': ['2023-01-01']
+    }).to_csv(csv_file, index=False)
+
+# Use the CSV file path
 job_matcher = JobMatcher()
-job_matcher.load_jobs('backend/job_title_des.csv')
+job_matcher.load_jobs(csv_file)
 
 # Load job data
 try:
-    jobs_df = pd.read_csv('backend/job_title_des.csv')
+    jobs_df = pd.read_csv(csv_file)
 except FileNotFoundError:
     jobs_df = pd.DataFrame(columns=['title', 'description'])
 
@@ -443,7 +515,7 @@ async def get_jobs():
         
         # Load job data
         try:
-            df = pd.read_csv('backend/job_title_des.csv', encoding='utf-8')
+            df = pd.read_csv(csv_file, encoding='utf-8')
             print(f"Loaded {len(df)} jobs from CSV")
         except Exception as e:
             print(f"Error loading jobs CSV: {str(e)}")
@@ -468,7 +540,7 @@ async def get_jobs():
         df = migrate_to_uuids(df)
         
         # Save the updated DataFrame with UUIDs
-        df.to_csv('backend/job_title_des.csv', index=False)
+        df.to_csv(csv_file, index=False)
         
         # Ensure required columns exist
         required_columns = ['id', 'title', 'description', 'company', 'location', 'salary', 'requirements', 'posted_date']
@@ -577,7 +649,7 @@ async def match_job(job_id: str):
         if job_id not in matches:
             print(f"Job {job_id} not in matches, calculating directly...")
             # Load job data
-            df = pd.read_csv('backend/job_title_des.csv', encoding='utf-8')
+            df = pd.read_csv(csv_file, encoding='utf-8')
             print(f"Loaded job data with {len(df)} rows")
             
             # Try to find the job by UUID first, then by numeric ID if not found
@@ -599,7 +671,7 @@ async def match_job(job_id: str):
             if str(job_row.iloc[0]['id']).replace('.', '').isdigit():
                 new_id = str(uuid.uuid4())
                 df.loc[job_row.index[0], 'id'] = new_id
-                df.to_csv('backend/job_title_des.csv', index=False)
+                df.to_csv(csv_file, index=False)
                 print(f"Updated job ID from {job_id} to {new_id}")
         else:
             match_score = matches[job_id]
@@ -617,7 +689,7 @@ async def match_job(job_id: str):
 async def search_jobs(query: str):
     try:
         # Load job data from CSV
-        df = pd.read_csv('backend/job_title_des.csv')
+        df = pd.read_csv(csv_file)
         
         # Filter jobs based on search query
         search_results = []
@@ -660,14 +732,14 @@ async def search_jobs(query: str):
 async def add_job(job: AddJobRequest):
     try:
         # Initialize DataFrame with correct columns if file doesn't exist
-        if not os.path.exists('backend/job_title_des.csv'):
+        if not os.path.exists(csv_file):
             jobs_df = pd.DataFrame(columns=[
                 'id', 'title', 'description', 'company', 
                 'location', 'salary', 'requirements', 'posted_date', 
                 'similarity_score'
             ])
         else:
-            jobs_df = pd.read_csv('backend/job_title_des.csv')
+            jobs_df = pd.read_csv(csv_file)
         
         # Create new job entry with UUID and proper data handling
         new_job = {
@@ -718,7 +790,7 @@ async def add_job(job: AddJobRequest):
         jobs_df = pd.concat([jobs_df, pd.DataFrame([new_job])], ignore_index=True)
         
         # Save updated DataFrame
-        jobs_df.to_csv('backend/job_title_des.csv', index=False)
+        jobs_df.to_csv(csv_file, index=False)
         
         # Return the job with the correct field names for the frontend
         return {
@@ -850,7 +922,7 @@ async def tailor_resume_endpoint(job_id: str):
         
         # Get job description
         logger.info("Loading job data")
-        jobs_df = pd.read_csv('backend/job_title_des.csv')
+        jobs_df = pd.read_csv(csv_file)
         
         try:
             # Convert job_id to string for comparison
@@ -932,7 +1004,7 @@ async def generate_cover_letter_endpoint(job_id: str):
         
         # Get job description
         logger.info("Loading job data")
-        jobs_df = pd.read_csv('backend/job_title_des.csv')
+        jobs_df = pd.read_csv(csv_file)
         
         try:
             # Convert job_id to string for comparison
@@ -1009,7 +1081,7 @@ async def generate_roadmap(job_id: str):
         
         # Get job description
         logger.info("Loading job data")
-        jobs_df = pd.read_csv('backend/job_title_des.csv')
+        jobs_df = pd.read_csv(csv_file)
         logger.debug(f"Found {len(jobs_df)} jobs in database")
         logger.debug(f"Columns in jobs_df: {jobs_df.columns.tolist()}")
         logger.debug(f"Sample job IDs: {jobs_df['id'].head().tolist()}")
@@ -1050,4 +1122,5 @@ async def generate_roadmap(job_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True) 
