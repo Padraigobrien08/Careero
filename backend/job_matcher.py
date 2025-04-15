@@ -8,89 +8,67 @@ from sklearn.metrics.pairwise import cosine_similarity
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
-from nltk.stem import WordNetLemmatizer
-import string
 
 # Download required NLTK data
 try:
     nltk.data.find('tokenizers/punkt')
     nltk.data.find('corpora/stopwords')
-    nltk.data.find('wordnet')
 except LookupError:
     nltk.download('punkt')
     nltk.download('stopwords')
-    nltk.download('wordnet')
 
 class JobMatcher:
-    def __init__(self):
-        self.vectorizer = TfidfVectorizer(stop_words='english', max_features=10000)
-        self.job_descriptions = None
-        self.tfidf_matrix = None
-        self.lemmatizer = WordNetLemmatizer()
-
-    def load_jobs(self, csv_path='job_title_des.csv'):
-        """Load job data from CSV and prepare for matching"""
+    def __init__(self, csv_path: str):
+        self.csv_path = csv_path
+        self.df = None
+        self.vectorizer = None
+        self.job_vectors = None
+        self.load_data()
+    
+    def load_data(self):
+        """Load and preprocess the job data"""
         try:
-            df = pd.read_csv(csv_path, encoding='utf-8')
-            # Clean up the DataFrame
-            if 'Job Description' in df.columns and 'description' in df.columns:
-                df['description'] = df['description'].fillna(df['Job Description'])
-                df = df.drop('Job Description', axis=1)
-            if 'Job Title' in df.columns and 'title' in df.columns:
-                df['title'] = df['title'].fillna(df['Job Title'])
-                df = df.drop('Job Title', axis=1)
+            # Read CSV
+            self.df = pd.read_csv(self.csv_path, encoding='utf-8')
             
-            # Ensure we have the required columns
-            required_columns = ['id', 'title', 'description']
-            for col in required_columns:
-                if col not in df.columns:
-                    if col == 'id' and 'index' in df.columns:
-                        df['id'] = df['index'].astype(str).str.split('.').str[0]
-                    else:
-                        df[col] = None
+            # Print available columns for debugging
+            print(f"Available columns: {list(self.df.columns)}")
+            print(f"Successfully loaded {len(self.df)} jobs")
             
-            # Combine title and description for better matching
-            df['combined_text'] = df['title'].fillna('') + ' ' + df['description'].fillna('')
+            # Handle different column naming conventions
+            # Map column names to standardized names
+            column_mapping = {
+                'Job Description': 'description',
+                'Job Title': 'title'
+            }
             
-            # Remove rows with empty combined text
-            df = df[df['combined_text'].str.strip() != '']
+            # Rename columns if old format exists
+            for old_col, new_col in column_mapping.items():
+                if old_col in self.df.columns and new_col not in self.df.columns:
+                    self.df[new_col] = self.df[old_col]
             
-            # Fit the vectorizer and transform the job descriptions
-            self.job_descriptions = df
-            self.tfidf_matrix = self.vectorizer.fit_transform(df['combined_text'])
+            # Ensure required columns exist
+            if 'description' not in self.df.columns:
+                raise Exception("Required column 'description' not found in the job data")
             
-            return True
+            print(f"Final column names: {list(self.df.columns)}")
+            
+            # Clean and preprocess job descriptions
+            self.df['processed_description'] = self.df['description'].apply(self.preprocess_text)
+            
+            # Initialize TF-IDF vectorizer
+            self.vectorizer = TfidfVectorizer(
+                stop_words='english',
+                ngram_range=(1, 2),
+                max_features=1000
+            )
+            
+            # Fit and transform job descriptions
+            self.job_vectors = self.vectorizer.fit_transform(self.df['processed_description'])
+            
         except Exception as e:
-            print(f"Error loading jobs: {str(e)}")
-            return False
-
-    def match_jobs(self, resume_text):
-        """Match resume text against job descriptions"""
-        try:
-            if not isinstance(resume_text, str):
-                raise ValueError("Resume text must be a string")
-                
-            if self.job_descriptions is None or self.tfidf_matrix is None:
-                if not self.load_jobs():
-                    raise Exception("Failed to load job data")
-            
-            # Transform resume text using the same vectorizer
-            resume_vector = self.vectorizer.transform([resume_text])
-            
-            # Calculate similarity scores
-            similarity_scores = cosine_similarity(resume_vector, self.tfidf_matrix).flatten()
-            
-            # Create a dictionary of job IDs and their similarity scores
-            matches = {}
-            for idx, score in enumerate(similarity_scores):
-                job_id = str(self.job_descriptions.iloc[idx]['id'])
-                matches[job_id] = float(score)
-            
-            return matches
-        except Exception as e:
-            print(f"Error finding matching jobs: {str(e)}")
-            raise
-
+            raise Exception(f"Error loading job data: {str(e)}")
+    
     def preprocess_text(self, text: str) -> str:
         """Preprocess text for matching"""
         if pd.isna(text):
@@ -107,44 +85,119 @@ class JobMatcher:
         
         return text.strip()
     
-    def calculate_similarity(self, resume_text: str, job_description: str) -> float:
-        """Calculate similarity between resume and a single job description"""
+    def extract_keywords(self, resume_text: str) -> List[str]:
+        """Extract relevant keywords from resume"""
+        # Preprocess resume text
+        processed_text = self.preprocess_text(resume_text)
+        
+        # Tokenize and remove stopwords
+        tokens = word_tokenize(processed_text)
+        stop_words = set(stopwords.words('english'))
+        keywords = [word for word in tokens if word not in stop_words and len(word) > 2]
+        
+        # Get most common keywords
+        keyword_counts = Counter(keywords)
+        top_keywords = [word for word, count in keyword_counts.most_common(20)]
+        
+        return top_keywords
+    
+    def find_matching_jobs(self, resume_text: str, top_n: int = 5) -> List[Dict]:
+        """Find the most relevant jobs for the resume"""
         try:
-            if not isinstance(resume_text, str) or not isinstance(job_description, str):
-                raise ValueError("Both resume_text and job_description must be strings")
+            # Preprocess resume text
+            processed_resume = self.preprocess_text(resume_text)
             
-            # Transform both texts using the same vectorizer
-            if self.vectorizer is None:
-                self.vectorizer = TfidfVectorizer(stop_words='english', max_features=10000)
-                self.vectorizer.fit([resume_text, job_description])
+            # Transform resume text using the same vectorizer
+            resume_vector = self.vectorizer.transform([processed_resume])
             
-            vectors = self.vectorizer.transform([resume_text, job_description])
-            similarity = cosine_similarity(vectors[0:1], vectors[1:2])[0][0]
+            # Calculate similarity scores
+            similarity_scores = cosine_similarity(resume_vector, self.job_vectors).flatten()
             
-            return float(similarity)
+            # Get top matching jobs
+            top_indices = similarity_scores.argsort()[-top_n:][::-1]
+            
+            # Prepare results
+            results = []
+            for idx in top_indices:
+                job = self.df.iloc[idx]
+                # Convert numpy types to Python native types
+                similarity_score = float(similarity_scores[idx])  # Convert numpy.float64 to float
+                results.append({
+                    'id': int(idx),  # Convert numpy.int64 to int
+                    'title': str(job['title']),  # Ensure string type
+                    'description': str(job['description']),  # Ensure string type
+                    'similarity_score': similarity_score
+                })
+            
+            return results
+            
+        except Exception as e:
+            raise Exception(f"Error finding matching jobs: {str(e)}")
+    
+    def get_job_details(self, job_id: int) -> Dict:
+        """Get detailed information about a specific job"""
+        try:
+            job = self.df.iloc[job_id]
+            return {
+                'id': int(job_id),  # Convert numpy.int64 to int
+                'title': str(job['title']),  # Ensure string type
+                'description': str(job['description'])  # Ensure string type
+            }
+        except Exception as e:
+            raise Exception(f"Error getting job details: {str(e)}")
+    
+    def match_jobs(self, resume_text: str) -> Dict[str, float]:
+        """Match resume text against jobs and return similarity scores"""
+        if self.df is None or len(self.df) == 0:
+            return {}
+        
+        try:
+            # Process the resume text
+            processed_resume = self.preprocess_text(resume_text)
+            
+            # Create a dictionary to store job_id -> similarity_score
+            similarity_dict = {}
+            
+            # If we have a vectorizer, use it for all jobs at once
+            if self.vectorizer and self.job_vectors is not None:
+                resume_vector = self.vectorizer.transform([processed_resume])
+                all_scores = cosine_similarity(resume_vector, self.job_vectors).flatten()
+                
+                for idx, score in enumerate(all_scores):
+                    # Get the job ID as a string
+                    job_id = str(self.df.iloc[idx]['id'])
+                    similarity_dict[job_id] = float(score)
+            else:
+                # Fallback to individual comparisons
+                for idx, row in self.df.iterrows():
+                    job_id = str(row['id'])
+                    job_description = row['description']
+                    score = self.calculate_similarity(processed_resume, job_description)
+                    similarity_dict[job_id] = score
+            
+            return similarity_dict
+            
+        except Exception as e:
+            print(f"Error in match_jobs: {str(e)}")
+            return {}
+    
+    def calculate_similarity(self, resume_text: str, job_description: str) -> float:
+        """Calculate similarity between resume text and job description"""
+        try:
+            # Preprocess texts
+            processed_resume = self.preprocess_text(resume_text)
+            processed_job = self.preprocess_text(job_description)
+            
+            # Create temporary vectorizer for this comparison
+            temp_vectorizer = TfidfVectorizer(stop_words='english')
+            
+            # Transform both texts
+            tfidf_matrix = temp_vectorizer.fit_transform([processed_resume, processed_job])
+            
+            # Calculate cosine similarity
+            sim_score = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+            
+            return float(sim_score)
         except Exception as e:
             print(f"Error calculating similarity: {str(e)}")
-            return 0.0
-
-    def extract_keywords(self, text: str, top_n: int = 10) -> List[str]:
-        """Extract top keywords from text using TF-IDF"""
-        try:
-            # Create TF-IDF vector
-            tfidf_matrix = self.vectorizer.transform([text])
-            
-            # Get feature names
-            feature_names = self.vectorizer.get_feature_names_out()
-            
-            # Get top keywords
-            top_keywords = []
-            for i in tfidf_matrix[0].indices:
-                score = tfidf_matrix[0, i]
-                if score > 0:
-                    top_keywords.append((feature_names[i], score))
-            
-            # Sort by score and get top N
-            top_keywords.sort(key=lambda x: x[1], reverse=True)
-            return [word for word, _ in top_keywords[:top_n]]
-        except Exception as e:
-            print(f"Error extracting keywords: {str(e)}")
-            return [] 
+            return 0.0 

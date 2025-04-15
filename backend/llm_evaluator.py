@@ -1,19 +1,29 @@
 import google.generativeai as genai
-from typing import Dict, Any
 import json
+from typing import Dict, Optional
 
 class LLMEvaluator:
     def __init__(self, api_key: str):
-        """Initialize the LLM evaluator with Gemini API key"""
+        """Initialize the Gemini model with API key"""
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
-
-    def evaluate_candidate(self, resume_text: str, job_title: str, job_description: str) -> Dict[str, Any]:
-        """Evaluate candidate's qualifications using Gemini"""
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    def evaluate_candidate(self, resume_text: str, job_title: str, job_description: str) -> Dict:
+        """
+        Evaluate how qualified the candidate is for the job using Gemini.
+        
+        Args:
+            resume_text (str): The candidate's resume text
+            job_title (str): The job title
+            job_description (str): The job description
+            
+        Returns:
+            Dict: Evaluation results including score and explanation
+        """
         try:
-            # Construct the prompt
+            # Create the prompt
             prompt = f"""
-            Rate how qualified the candidate is for this job.
+            You are an expert hiring manager. Please evaluate how qualified the candidate is for this job.
             
             Job Title: {job_title}
             Job Description: {job_description}
@@ -21,34 +31,63 @@ class LLMEvaluator:
             Candidate's Resume:
             {resume_text}
             
-            Please provide a structured evaluation in JSON format with the following fields:
-            - score: A number between 0 and 100 indicating overall qualification
-            - explanation: A detailed explanation of the rating
-            - strengths: List of candidate's strengths for this role
-            - gaps: List of areas where the candidate falls short
+            Please provide:
+            1. A score from 0-100 indicating how qualified the candidate is
+            2. A detailed explanation of your evaluation
+            3. Key strengths that match the job requirements
+            4. Any potential gaps or areas for improvement
+            
+            Format your response as a JSON object with these keys:
+            - score (integer)
+            - explanation (string)
+            - strengths (list of strings)
+            - gaps (list of strings)
             """
             
-            # Get response from Gemini
+            # Generate response
             response = self.model.generate_content(prompt)
+            
+            # Write response to output.txt
+            with open('output.txt', 'w') as f:
+                f.write(response.text)
             
             # Parse the response
             try:
-                evaluation = json.loads(response.text)
+                # Extract JSON from the response
+                response_text = response.text.strip()
+                if response_text.startswith('```json'):
+                    response_text = response_text[7:-3].strip()
+                
+                # Parse JSON safely
+                evaluation = json.loads(response_text)
+                
+                # Ensure all required fields are present with default values
+                evaluation.setdefault('score', 0)
+                evaluation.setdefault('explanation', 'No explanation provided')
+                evaluation.setdefault('strengths', [])
+                evaluation.setdefault('gaps', [])
+                
+                # Ensure gaps is a list
+                if not isinstance(evaluation['gaps'], list):
+                    evaluation['gaps'] = [str(evaluation['gaps'])]
+                
                 return evaluation
-            except json.JSONDecodeError:
-                # If response is not valid JSON, create a structured response
+                
+            except json.JSONDecodeError as e:
+                print(f"Failed to parse LLM response: {str(e)}")
+                print(f"Raw response: {response.text}")
                 return {
-                    "score": 0,
-                    "explanation": "Unable to parse LLM response",
-                    "strengths": [],
-                    "gaps": []
+                    'score': 0,
+                    'explanation': 'Failed to parse evaluation',
+                    'strengths': [],
+                    'gaps': ['Failed to generate evaluation']
                 }
                 
         except Exception as e:
             print(f"Error in LLM evaluation: {str(e)}")
             return {
-                "score": 0,
-                "explanation": f"Error during evaluation: {str(e)}",
-                "strengths": [],
-                "gaps": []
+                'score': 0,
+                'explanation': 'Error in evaluation',
+                'strengths': [],
+                'gaps': ['Error in evaluation']
             } 
