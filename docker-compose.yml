@@ -1,24 +1,28 @@
 version: '3.8'
 
 services:
-  frontend:
-    build: ./frontend
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
-      - "80:80"
+      - "8080:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./uploads:/app/uploads
+      - ./resumes.json:/app/resumes.json
+    environment:
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost:8080
     depends_on:
       - backend
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
-
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend/uploads:/app/uploads
-      - ./backend/job_title_des.csv:/app/job_title_des.csv
-    environment:
-      - DATABASE_URL=sqlite:///./careeroos.db
-      - SECRET_KEY=your-secret-key-here
-      - UPLOAD_DIR=./uploads
-      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:80 
+    restart: unless-stopped 
