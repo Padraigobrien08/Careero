@@ -29,7 +29,7 @@ load_dotenv()
 
 # Security settings
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",")
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 ALLOWED_FILE_TYPES = {
     'application/pdf': '.pdf',
@@ -42,7 +42,7 @@ app = FastAPI(title="CareeroOS API")
 # Security middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],  # Allow all origins temporarily for debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -293,15 +293,46 @@ async def get_resume(resume_id: str):
 @app.delete("/resumes/{resume_id}")
 async def delete_resume(resume_id: str):
     try:
-        # Look for the file with any supported extension
+        file_deleted = False
+        
+        # First delete the physical file
         for ext in ['.pdf', '.docx']:
             file_path = os.path.join(UPLOAD_DIR, f"{resume_id}{ext}")
             if os.path.exists(file_path):
                 os.remove(file_path)
-                return {"message": "Resume deleted successfully"}
+                file_deleted = True
+                break
         
-        raise HTTPException(status_code=404, detail="Resume not found")
+        # Then update the resumes.json file
+        resumes_file = os.path.join(os.getcwd(), "resumes.json")
+        if os.path.exists(resumes_file):
+            try:
+                with open(resumes_file, "r") as f:
+                    resumes_data = json.load(f)
+                
+                # Filter out the resume with the given ID
+                updated_resumes = [r for r in resumes_data if r.get("id") != resume_id]
+                
+                # Save the updated list back to the file
+                with open(resumes_file, "w") as f:
+                    json.dump(updated_resumes, f, indent=2)
+                
+                # Also update the backend copy
+                backend_resumes_file = os.path.join(os.getcwd(), "backend", "resumes.json")
+                if os.path.exists(backend_resumes_file):
+                    with open(backend_resumes_file, "w") as f:
+                        json.dump(updated_resumes, f, indent=2)
+                
+                file_deleted = True
+            except json.JSONDecodeError:
+                pass
+        
+        if file_deleted:
+            return {"message": "Resume deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Resume not found")
     except Exception as e:
+        logger.error(f"Error deleting resume: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/analyze-resume")
