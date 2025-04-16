@@ -19,6 +19,7 @@ from pathlib import Path
 import shutil
 import magic  # For file type validation
 import time
+import asyncio # <-- Import asyncio
 from contextlib import asynccontextmanager
 
 # --- Define backend_dir at module level ---
@@ -125,27 +126,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize ResumeParser: {e}")
 
-    if JobMatcher and csv_file:
+    if JobMatcher and csv_file and os.path.exists(csv_file):
         try:
+            # This initialization now calls load_jobs() internally
             job_matcher = JobMatcher(csv_path=csv_file)
             logger.info(f"JobMatcher initialized with data from {csv_file}.")
-            # Load data into memory from the job_matcher's dataframe
-            if job_matcher.jobs_df is not None:
-                 # Handle potential numpy types during conversion
-                 temp_df = job_matcher.jobs_df.copy()
-                 for col in temp_df.select_dtypes(include=['number']).columns:
-                     # Convert numpy floats/ints to Python native types
-                     temp_df[col] = temp_df[col].apply(lambda x: float(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.floating, float)) else (int(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.integer, int)) else x))
-                 # Handle NaN -> None for JSON compatibility
-                 jobs_data = temp_df.where(pd.notna(temp_df), None).to_dict(orient='records')
+            # Now correctly check the attribute AFTER initialization
+            if hasattr(job_matcher, 'jobs_df') and job_matcher.jobs_df is not None and not job_matcher.jobs_df.empty:
+                 # Simplified loading logic (ensure serialization if needed)
+                 jobs_data = job_matcher.jobs_df.where(pd.notna(job_matcher.jobs_df), None).to_dict(orient='records')
                  logger.info(f"Loaded {len(jobs_data)} jobs into memory.")
             else:
-                 logger.warning("JobMatcher initialized, but its DataFrame is empty.")
+                 logger.warning("JobMatcher initialized, but its DataFrame is empty or None after load.")
                  jobs_data = []
-
         except Exception as e:
             logger.error(f"Failed to initialize JobMatcher: {e}")
-            jobs_data = [] # Ensure jobs_data is an empty list on failure
+            jobs_data = []
+            job_matcher = None # Ensure job_matcher is None on error
 
     # Initialize other optional components
     gemini_api_key = os.getenv("GEMINI_API_KEY")
