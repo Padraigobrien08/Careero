@@ -19,6 +19,14 @@ from pathlib import Path
 import shutil
 import magic  # For file type validation
 import time
+from contextlib import asynccontextmanager
+
+# --- Define backend_dir at module level ---
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+
+# --- Logging Setup ---
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
+logger = logging.getLogger(__name__)
 
 # --- Global Variables ---
 jobs_data: List[Dict] = []
@@ -78,49 +86,36 @@ except ImportError:
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse, JSONResponse
 
-# --- Define backend_dir at module level ---
-backend_dir = os.path.dirname(os.path.abspath(__file__))
-
 # --- FastAPI App Setup ---
-app = FastAPI(title="CareeroOS API")
+from contextlib import asynccontextmanager
 
-# Logging Setup
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
-logger = logging.getLogger(__name__)
-
-# --- Startup Event ---
-@app.on_event("startup")
-async def load_data_on_startup():
+# --- Lifespan Event Handler (Replaces on_event) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Code to run on startup
     global jobs_data, job_matcher, resume_parser, llm_evaluator, resume_improver, csv_processor
-
-    logger.info("Application startup: Initializing components and loading data...")
+    logger.info("Application startup: Initializing components and loading data via lifespan...")
     start_time = time.monotonic()
-
-    # Load environment variables from .env file in this directory
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
-
-    # --- Path and File Setup ---
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    # Look for CSV *only* within the backend directory
     csv_file = os.path.join(backend_dir, 'job_title_des.csv')
 
-    # Check if CSV exists in backend, if not, check root
     if not os.path.exists(csv_file):
-        root_csv_file = os.path.join(backend_dir, '..', 'job_title_des.csv')
-        if os.path.exists(root_csv_file):
-            logger.info(f"Found job_title_des.csv in root directory: {root_csv_file}")
-            csv_file = root_csv_file
-        else:
-            # Create default if not found anywhere
-            csv_file = os.path.join(backend_dir, 'job_title_des.csv')
-            logger.warning(f"job_title_des.csv not found. Creating default at {csv_file}")
-            try:
-                pd.DataFrame({
-                    'id': [str(uuid.uuid4())], 'title': ['Sample Job'], 'company': ['Sample Co'],
-                    'location': ['Remote'], 'salary': [0], 'description': ['Sample Desc'],
-                    'requirements': ['None'], 'postedDate': [datetime.now().strftime('%Y-%m-%d')]
-                }).to_csv(csv_file, index=False)
-            except Exception as e:
-                 logger.error(f"Failed to create default CSV: {e}")
-                 csv_file = None # Ensure csv_file is None if creation failed
+        logger.error(f"CRITICAL: job_title_des.csv not found in backend directory: {csv_file}")
+        # Optionally create default, but log error regardless
+        logger.warning(f"Creating default job_title_des.csv at {csv_file}")
+        try:
+            pd.DataFrame({
+                'id': [str(uuid.uuid4())], 'title': ['Sample Job'], 'company': ['Sample Co'],
+                'location': ['Remote'], 'salary': [0], 'description': ['Sample Desc'],
+                'requirements': ['None'], 'postedDate': [datetime.now().strftime('%Y-%m-%d')]
+            }).to_csv(csv_file, index=False)
+        except Exception as e:
+            logger.error(f"Failed to create default CSV: {e}")
+            csv_file = None # Ensure it's None if creation failed
+    else:
+        logger.info(f"Found job_title_des.csv at: {csv_file}")
 
     # --- Initialize components ---
     if ResumeParser:
@@ -149,7 +144,7 @@ async def load_data_on_startup():
                  jobs_data = []
 
         except Exception as e:
-            logger.error(f"Failed to initialize JobMatcher or load its data: {e}")
+            logger.error(f"Failed to initialize JobMatcher: {e}")
             jobs_data = [] # Ensure jobs_data is an empty list on failure
 
     # Initialize other optional components
@@ -190,6 +185,14 @@ async def load_data_on_startup():
     end_time = time.monotonic()
     logger.info(f"Application startup completed in {end_time - start_time:.4f}s")
 
+    yield # Application runs here
+
+    # Code to run on shutdown (optional)
+    logger.info("Application shutdown.")
+
+
+app = FastAPI(title="CareeroOS API", lifespan=lifespan)
+
 # --- CORS Middleware ---
 app.add_middleware(
     CORSMiddleware,
@@ -229,15 +232,23 @@ class AddJobRequest(BaseModel):
     requirements: List[str] = []
 
 # --- API Endpoints ---
-@app.get("/", methods=["GET", "HEAD"])
-async def root():
+@app.get("/")
+async def root_get():
     """
-    Returns the list of jobs loaded into memory at startup.
-    Also handles HEAD requests.
+    Returns the list of jobs loaded into memory at startup (GET request).
     """
-    # Note: Returning large lists from the root can be inefficient.
-    # Consider if this is the desired behavior or if a dedicated /jobs endpoint is better.
-    return jobs_data # Return the globally loaded list
+    logger.debug("Handling GET /")
+    return jobs_data
+
+@app.head("/")
+async def root_head():
+    """
+    Handles HEAD requests for the root path. Returns empty response with headers.
+    """
+    logger.debug("Handling HEAD /")
+    # FastAPI/Starlette usually handles HEAD correctly based on GET,
+    # but an explicit empty response is also valid.
+    return Response(status_code=200)
 
 @app.post("/process-resume")
 async def process_uploaded_resume(file: UploadFile = File(...)):
