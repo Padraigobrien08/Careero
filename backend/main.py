@@ -70,10 +70,9 @@ except NameError:
     resume_parser = None
 
 try:
-    job_matcher = JobMatcher()
-    job_matcher.load_jobs(csv_file)
+    job_matcher = JobMatcher(csv_path=csv_file)
 except NameError:
-    print("Warning: JobMatcher not initialized (Import failed?)")
+    print("Warning: JobMatcher not initialized (Import failed or TypeError?)")
     job_matcher = None
 
 try:
