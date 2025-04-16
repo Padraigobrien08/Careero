@@ -19,25 +19,20 @@ from pathlib import Path
 import shutil
 import magic  # For file type validation
 
-# Simple direct imports - Python should find these in the same (backend) directory
-# when run via `uvicorn backend.main:app`
-from job_matcher import JobMatcher
-# Assuming llm_evaluator might not be present based on previous errors
+# Explicit Relative Imports for modules in the same directory
+from .job_matcher import JobMatcher
 try:
-    from llm_evaluator import LLMEvaluator
+    from .llm_evaluator import LLMEvaluator
 except ImportError:
-    LLMEvaluator = None # Define a placeholder if needed
-from resume_parser import ResumeParser
-# Assuming pdf_processor might not be present
+    LLMEvaluator = None
+from .resume_parser import ResumeParser
 try:
-    from pdf_processor import PDFProcessor
+    from .pdf_processor import PDFProcessor
 except ImportError:
-    PDFProcessor = None # Define a placeholder
-# Assuming gemini_service might not be present
+    PDFProcessor = None
 try:
-    from gemini_service import tailor_resume, generate_cover_letter, generate_roadmap as generate_roadmap_suggestions
+    from .gemini_service import tailor_resume, generate_cover_letter, generate_roadmap as generate_roadmap_suggestions
 except ImportError:
-    # Define placeholders
     def tailor_resume(*args, **kwargs): return None
     def generate_cover_letter(*args, **kwargs): return None
     def generate_roadmap_suggestions(*args, **kwargs): return None
@@ -45,44 +40,41 @@ except ImportError:
 from dotenv import load_dotenv
 from fastapi.responses import FileResponse, JSONResponse
 
-# Load environment variables from .env file in the backend directory
+# Load environment variables from .env file in this directory
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
-# Get the absolute path to the directory containing main.py
+# --- Path and File Setup ---
 backend_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Find the job_title_des.csv file relative to main.py
 csv_file = os.path.join(backend_dir, 'job_title_des.csv')
 
-# If the primary CSV isn't found, check one level up (project root)
+# Check if CSV exists in backend, if not, check root
 if not os.path.exists(csv_file):
     root_csv_file = os.path.join(backend_dir, '..', 'job_title_des.csv')
     if os.path.exists(root_csv_file):
         csv_file = root_csv_file
-
-# If still not found, create a default one in the backend directory
-if not os.path.exists(csv_file):
-    csv_file = os.path.join(backend_dir, 'job_title_des.csv')
-    print(f"Warning: job_title_des.csv not found. Creating default at {csv_file}")
-    pd.DataFrame({
-        'id': ['sample-id'], 'title': ['Sample Job'], 'company': ['Sample Co'],
-        'location': ['Remote'], 'salary': [0], 'description': ['Sample Desc'],
-        'requirements': ['None'], 'postedDate': ['2023-01-01']
-    }).to_csv(csv_file, index=False)
+    else:
+        # Create default if not found anywhere
+        csv_file = os.path.join(backend_dir, 'job_title_des.csv')
+        print(f"Warning: job_title_des.csv not found. Creating default at {csv_file}")
+        pd.DataFrame({
+            'id': ['sample-id'], 'title': ['Sample Job'], 'company': ['Sample Co'],
+            'location': ['Remote'], 'salary': [0], 'description': ['Sample Desc'],
+            'requirements': ['None'], 'postedDate': ['2023-01-01']
+        }).to_csv(csv_file, index=False)
 
 # --- Initialize components ---
 try:
     resume_parser = ResumeParser()
 except NameError:
     print("Warning: ResumeParser not initialized (Import failed?)")
-    resume_parser = None # Or a dummy object
+    resume_parser = None
 
 try:
     job_matcher = JobMatcher()
     job_matcher.load_jobs(csv_file)
 except NameError:
     print("Warning: JobMatcher not initialized (Import failed?)")
-    job_matcher = None # Or a dummy object
+    job_matcher = None
 
 try:
     llm_evaluator = LLMEvaluator(os.getenv("GEMINI_API_KEY")) if LLMEvaluator else None
@@ -90,25 +82,25 @@ except NameError:
      print("Warning: LLMEvaluator not initialized (Import failed?)")
      llm_evaluator = None
 
-# Assuming ResumeImprover might not be present
+# Optional components with try-except for import
 try:
-    from resume_improver import ResumeImprover
+    from .resume_improver import ResumeImprover
     resume_improver = ResumeImprover(os.getenv("GEMINI_API_KEY"))
 except (ImportError, NameError):
     print("Warning: ResumeImprover not available.")
-    resume_improver = None # Define a placeholder if needed
+    resume_improver = None
 
-# Assuming JobDataProcessor might not be present
 try:
-    from csv_processor import JobDataProcessor
+    from .csv_processor import JobDataProcessor
     csv_processor = JobDataProcessor(csv_file)
 except (ImportError, NameError):
     print("Warning: JobDataProcessor not available.")
-    csv_processor = None # Define a placeholder
+    csv_processor = None
 
+# --- FastAPI App Setup ---
 app = FastAPI(title="CareeroOS API")
 
-# --- Configure CORS ---
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # Adjust for production
@@ -117,10 +109,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Logging Setup ---
-# Configure logging basic setup - adjust level as needed
+# Logging Setup
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
+
+# Request Logging Middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Request: {request.method} {request.url}")
+    try:
+        response = await call_next(request)
+        logger.info(f"Response: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.exception(f"Request failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # --- Pydantic Models ---
 class EvaluationRequest(BaseModel):
@@ -131,20 +134,8 @@ class AddJobRequest(BaseModel):
     description: str
     company: str
     location: str
-    salary: Optional[str] = None # Made optional
-    requirements: List[str] = [] # Default to empty list
-
-# --- Middleware ---
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
-    try:
-        response = await call_next(request)
-        logger.info(f"Response: {response.status_code}")
-        return response
-    except Exception as e:
-        logger.exception(f"Request failed: {e}") # Use logger.exception for stack trace
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    salary: Optional[str] = None
+    requirements: List[str] = []
 
 # --- API Endpoints ---
 @app.get("/")
