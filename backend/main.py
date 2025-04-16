@@ -18,6 +18,7 @@ import base64
 from pathlib import Path
 import shutil
 import magic  # For file type validation
+import time # <-- Import time module
 
 # Explicit Relative Imports for modules in the same directory
 from .job_matcher import JobMatcher
@@ -115,13 +116,21 @@ logger = logging.getLogger(__name__)
 # Request Logging Middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
+    start_time = time.monotonic()
+    logger.info(f"Request Start: {request.method} {request.url}")
     try:
         response = await call_next(request)
-        logger.info(f"Response: {response.status_code}")
+        process_time = time.monotonic() - start_time
+        logger.info(
+            f"Request End: {request.method} {request.url} - Status: {response.status_code} - Took: {process_time:.4f}s"
+        )
         return response
     except Exception as e:
-        logger.exception(f"Request failed: {e}")
+        process_time = time.monotonic() - start_time
+        logger.exception(f"Request Failed: {request.method} {request.url} - Took: {process_time:.4f}s - Error: {e}")
+        # Reraise the exception to ensure FastAPI handles it correctly
+        # Or return a generic error response
+        # For now, re-raising is simpler
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # --- Pydantic Models ---
@@ -143,25 +152,41 @@ async def root():
 
 @app.post("/process-resume")
 async def process_uploaded_resume(file: UploadFile = File(...)):
+    start_time = time.monotonic()
+    logger.info(f"Starting /process-resume for {file.filename}")
     if not resume_parser:
          raise HTTPException(status_code=500, detail="ResumeParser not available")
     # Simplified processing - assumes ResumeParser handles path correctly
     try:
         # Example: Save temporarily if needed by parser
         temp_path = f"temp_{file.filename}"
+        logger.debug("Saving temporary file...")
+        save_start = time.monotonic()
         with open(temp_path, "wb") as buffer:
              shutil.copyfileobj(file.file, buffer)
+        logger.debug(f"Temporary file saved in {time.monotonic() - save_start:.4f}s")
         result = resume_parser.parse_resume(temp_path)
         os.remove(temp_path)
+        end_time = time.monotonic()
+        logger.info(f"Finished /process-resume for {file.filename} in {end_time - start_time:.4f}s")
         return result
     except Exception as e:
-        logger.exception("Error processing resume")
+        end_time = time.monotonic()
+        logger.exception(f"Error in /process-resume for {file.filename} after {end_time - start_time:.4f}s")
+        # Ensure temp file is removed even on error, if it exists
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_e:
+                logger.error(f"Failed to cleanup temp file {temp_path} on error: {cleanup_e}")
         raise HTTPException(status_code=500, detail=f"Error processing resume: {e}")
 
 @app.post("/match-jobs")
 async def match_jobs_endpoint(file: UploadFile = File(...)):
+    start_time = time.monotonic()
+    logger.info(f"Starting /match-jobs for {file.filename}")
     if not job_matcher or not llm_evaluator:
-         raise HTTPException(status_code=500, detail="Required components (JobMatcher/LLMEvaluator) not available")
+         raise HTTPException(status_code=500, detail="Required components not available")
     # Simplified logic
     try:
         # Example: Save temporarily
@@ -176,6 +201,9 @@ async def match_jobs_endpoint(file: UploadFile = File(...)):
 
         matching_jobs = job_matcher.find_matching_jobs(resume_text)
         if not matching_jobs:
+            logger.warning(f"No matching jobs found for {file.filename}")
+            end_time = time.monotonic()
+            logger.info(f"Finished /match-jobs for {file.filename} (no matches) in {end_time - start_time:.4f}s")
             return {"error": "No matching jobs found"}
 
         # Placeholder evaluation
@@ -183,7 +211,12 @@ async def match_jobs_endpoint(file: UploadFile = File(...)):
         if llm_evaluator and matching_jobs:
              top_job_details = job_matcher.get_job_details(matching_jobs[0]['id'])
              if top_job_details:
+                 logger.debug("Evaluating candidate with LLM...")
+                 eval_start = time.monotonic()
                  evaluation = llm_evaluator.evaluate_candidate(resume_text, top_job_details['title'], top_job_details['description'])
+                 logger.debug(f"LLM evaluation took {time.monotonic() - eval_start:.4f}s")
+             else:
+                 logger.warning("Could not get details for top job to perform evaluation.")
 
         # Ensure data types are serializable
         top_match = matching_jobs[0]
@@ -194,14 +227,19 @@ async def match_jobs_endpoint(file: UploadFile = File(...)):
         else:
              serializable_details = {"error": "Could not fetch job details"}
 
-
+        end_time = time.monotonic()
+        logger.info(f"Finished /match-jobs for {file.filename} in {end_time - start_time:.4f}s")
         return {
             "top_matching_job": serializable_details,
             "similarity_score": float(top_match['similarity_score']), # Ensure float
             "evaluation": evaluation
         }
     except Exception as e:
-        logger.exception("Error matching jobs")
+        end_time = time.monotonic()
+        logger.exception(f"Error in /match-jobs for {file.filename} after {end_time - start_time:.4f}s")
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            try: os.remove(temp_path)
+            except Exception as cleanup_e: logger.error(f"Failed to cleanup temp file on error: {cleanup_e}")
         raise HTTPException(status_code=500, detail=f"Error matching jobs: {e}")
 
 
@@ -210,6 +248,8 @@ async def get_jobs_endpoint(
     query: Optional[str] = Query(None),
     limit: int = Query(25) # Default limit
 ):
+    start_time = time.monotonic()
+    logger.info(f"Starting /jobs query='{query}', limit={limit}")
     if not job_matcher:
          raise HTTPException(status_code=500, detail="JobMatcher not available")
     try:
@@ -233,6 +273,7 @@ async def get_jobs_endpoint(
 
         # Convert potential numpy types
         serializable_results = []
+        serialize_start = time.monotonic()
         for job in results:
             serializable_job = {}
             for k, v in job.items():
@@ -243,11 +284,15 @@ async def get_jobs_endpoint(
                 else:
                      serializable_job[k] = v
             serializable_results.append(serializable_job)
+        logger.debug(f"Serialization took {time.monotonic() - serialize_start:.4f}s")
 
+        end_time = time.monotonic()
+        logger.info(f"Finished /jobs query='{query}' in {end_time - start_time:.4f}s, returning {len(serializable_results)} results")
         return serializable_results # Return list directly as per frontend expectation
 
     except Exception as e:
-        logger.exception("Error fetching jobs")
+        end_time = time.monotonic()
+        logger.exception(f"Error in /jobs after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error fetching jobs: {e}")
 
 
@@ -292,6 +337,8 @@ async def generate_improvement_plan_endpoint(request: EvaluationRequest):
 
 @app.post("/jobs/{job_id}/match")
 async def match_single_job(job_id: str):
+    start_time = time.monotonic()
+    logger.info(f"Starting single job match for job_id={job_id}")
     if not job_matcher or not resume_parser:
         raise HTTPException(status_code=500, detail="Required components not available")
     try:
@@ -311,12 +358,18 @@ async def match_single_job(job_id: str):
         resume_data = resume_parser.parse_resume(latest_resume_path)
         resume_text = resume_data.get("text", "")
 
+        match_start = time.monotonic()
         score = job_matcher.calculate_similarity(resume_text, job_id)
+        logger.debug(f"Calculated similarity score in {time.monotonic() - match_start:.4f}s")
+
+        end_time = time.monotonic()
+        logger.info(f"Finished single job match for job_id={job_id} in {end_time - start_time:.4f}s")
         return {"job_id": job_id, "similarity_score": float(score)} # Ensure float
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error matching job {job_id}")
+        end_time = time.monotonic()
+        logger.exception(f"Error matching single job {job_id} after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error matching job {job_id}: {e}")
 
 
@@ -525,6 +578,8 @@ async def add_job_endpoint(job: AddJobRequest):
 # --- Gemini Endpoints (Simplified) ---
 @app.post("/jobs/{job_id}/tailor-resume")
 async def tailor_resume_endpoint(job_id: str):
+    start_time = time.monotonic()
+    logger.info(f"Starting /tailor-resume for job_id={job_id}")
     if not job_matcher or not resume_parser:
          raise HTTPException(status_code=500, detail="Required components not available")
     try:
@@ -545,13 +600,16 @@ async def tailor_resume_endpoint(job_id: str):
         # Call Gemini service (if imported)
         if 'tailor_resume' in globals() and callable(tailor_resume):
              tailored = tailor_resume(resume_text, job['description'])
+             end_time = time.monotonic()
+             logger.info(f"Finished /tailor-resume for job_id={job_id} in {end_time - start_time:.4f}s")
              return {"tailored_resume": tailored}
         else:
              raise HTTPException(status_code=501, detail="Tailor resume feature not available")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"Error tailoring resume for job {job_id}")
+        end_time = time.monotonic()
+        logger.exception(f"Error in /tailor-resume after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error tailoring resume: {e}")
 
 @app.post("/jobs/{job_id}/generate-cover-letter")
