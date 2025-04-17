@@ -311,9 +311,9 @@ async def get_jobs_endpoint(
     logger.info(f"[handler] /jobs sees {len(jobs_in_memory)} jobs in app.state, id={id(jobs_in_memory)}")
 
     # If state is empty after startup, return empty list (200 OK)
-    # No lazy load here - rely on successful startup load
+    # REMOVED LAZY LOAD - Rely solely on startup
     if not jobs_in_memory:
-        logger.warning("Job data in app.state is empty. Returning empty list.")
+        logger.warning("/jobs handler: Job data in app.state is empty. Returning empty list.")
         return []
 
     # Proceed with filtering/returning jobs_in_memory
@@ -333,12 +333,13 @@ async def get_jobs_endpoint(
         results = filtered_jobs[:limit]
         end_time = time.monotonic()
         logger.info(f"Finished /jobs query='{query}' in {end_time - start_time:.4f}s, returning {len(results)} results")
-        return results
+        return results # Return 200 OK with the (potentially empty) list
 
     except Exception as e:
         end_time = time.monotonic()
-        logger.exception(f"Error in /jobs handler after {end_time - start_time:.4f}s")
-        raise HTTPException(status_code=500, detail=f"Error fetching jobs: {e}")
+        logger.exception(f"Error in /jobs handler processing after {end_time - start_time:.4f}s")
+        # Don't return 503, return 500 for unexpected processing error
+        raise HTTPException(status_code=500, detail=f"Error processing jobs: {e}")
 
 @app.get("/jobs/{job_id}")
 async def get_job_endpoint(request: Request, job_id: str):
