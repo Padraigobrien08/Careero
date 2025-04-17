@@ -12,7 +12,7 @@ import time
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import datetime
 import magic  # For file type validation
 import pandas as pd
@@ -29,13 +29,16 @@ backend_dir = os.path.dirname(os.path.abspath(__file__))
 
 # --- Logging Setup ---
 # Configure logging basic setup - adjust level as needed
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(),
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s') # Added format
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO) # Default to INFO if invalid level
+logging.basicConfig(level=log_level,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+logger.info(f"Logging configured with level: {logging.getLevelName(logger.getEffectiveLevel())}")
 
 
 # --- Global Placeholders & Attempt Imports ---
-# Define placeholders first
+# Initialize all potential classes/functions to None first
 JobMatcher = None
 LLMEvaluator = None
 ResumeParser = None
@@ -47,174 +50,155 @@ gemini_generate_cover_letter = None
 gemini_generate_roadmap = None
 
 # Attempt to import local modules using relative imports
-try:
-    from .job_matcher import JobMatcher
-    logger.debug("Successfully imported JobMatcher")
-except ImportError:
-    logger.warning("job_matcher module not found.")
-try:
-    from .llm_evaluator import LLMEvaluator
-    logger.debug("Successfully imported LLMEvaluator")
-except ImportError:
-    logger.warning("llm_evaluator module not found.")
-try:
-    from .resume_parser import ResumeParser
-    logger.debug("Successfully imported ResumeParser")
-except ImportError:
-    logger.warning("resume_parser module not found.")
-try:
-    from .pdf_processor import PDFProcessor
-    logger.debug("Successfully imported PDFProcessor")
-except ImportError:
-    logger.warning("pdf_processor module not found.")
+try: from .job_matcher import JobMatcher; logger.info("Successfully imported JobMatcher")
+except ImportError: logger.warning("job_matcher module not found.")
+try: from .llm_evaluator import LLMEvaluator; logger.info("Successfully imported LLMEvaluator")
+except ImportError: logger.warning("llm_evaluator module not found.")
+try: from .resume_parser import ResumeParser; logger.info("Successfully imported ResumeParser")
+except ImportError: logger.warning("resume_parser module not found.")
+try: from .pdf_processor import PDFProcessor; logger.info("Successfully imported PDFProcessor")
+except ImportError: logger.warning("pdf_processor module not found.")
 try:
     from .gemini_service import tailor_resume as gemini_tailor_resume, \
                                 generate_cover_letter as gemini_generate_cover_letter, \
                                 generate_roadmap as gemini_generate_roadmap
-    logger.debug("Successfully imported gemini_service functions")
-except ImportError:
-    logger.warning("gemini_service module not found.")
-    # Define placeholders if Gemini service is critical but might be missing
-    def gemini_tailor_resume(*args, **kwargs): logger.warning("gemini_tailor_resume called but not available"); return None
-    def gemini_generate_cover_letter(*args, **kwargs): logger.warning("gemini_generate_cover_letter called but not available"); return None
-    def gemini_generate_roadmap(*args, **kwargs): logger.warning("gemini_generate_roadmap called but not available"); return None
-try:
-    from .resume_improver import ResumeImprover
-    logger.debug("Successfully imported ResumeImprover")
-except ImportError:
-    logger.warning("resume_improver module not found.")
-try:
-    from .csv_processor import JobDataProcessor
-    logger.debug("Successfully imported JobDataProcessor")
-except ImportError:
-    logger.warning("csv_processor module not found.")
+    logger.info("Successfully imported gemini_service functions")
+except ImportError: logger.warning("gemini_service module not found.")
+try: from .resume_improver import ResumeImprover; logger.info("Successfully imported ResumeImprover")
+except ImportError: logger.warning("resume_improver module not found.")
+try: from .csv_processor import JobDataProcessor; logger.info("Successfully imported JobDataProcessor")
+except ImportError: logger.warning("csv_processor module not found.")
 
-# --- Component Instances (Initialized in lifespan) ---
-# Using Optional typing and initializing to None
-job_matcher_instance: Optional[JobMatcher] = None
-resume_parser_instance: Optional[ResumeParser] = None
-llm_evaluator_instance: Optional[LLMEvaluator] = None
-resume_improver_instance: Optional[ResumeImprover] = None
-csv_processor_instance: Optional[JobDataProcessor] = None
+
+# --- Helper Function for Loading Jobs (More Robust) ---
+def _load_and_process_jobs_robustly(csv_path: str) -> Tuple[Optional[List[Dict]], Optional[JobMatcher]]:
+    """
+    Loads jobs from CSV via JobMatcher, processes, handles errors,
+    and returns a tuple (list_of_job_dicts | None, job_matcher_instance | None).
+    """
+    if not JobMatcher:
+        logger.error("Cannot load jobs: JobMatcher class was not imported.")
+        return None, None
+    if not csv_path or not os.path.exists(csv_path):
+         logger.error(f"Cannot load jobs: CSV path is invalid or file doesn't exist ('{csv_path}').")
+         return None, None
+
+    local_job_matcher = None
+    processed_jobs_list = None
+
+    try:
+        logger.info(f"Attempting to initialize JobMatcher with CSV: {csv_path}")
+        # Initialize the class - its __init__ should handle internal loading
+        local_job_matcher = JobMatcher(csv_path=csv_path)
+        logger.info("JobMatcher instance created.")
+
+        # *** Explicitly check the state AFTER initialization ***
+        if hasattr(local_job_matcher, 'jobs_df') and isinstance(local_job_matcher.jobs_df, pd.DataFrame) and not local_job_matcher.jobs_df.empty:
+            logger.info(f"JobMatcher internal jobs_df loaded successfully. Shape: {local_job_matcher.jobs_df.shape}. Processing for app state...")
+            temp_df = local_job_matcher.jobs_df.copy()
+
+            # Ensure essential columns exist for frontend compatibility, add if missing
+            essential_cols = ['id', 'title', 'company', 'location', 'description', 'requirements', 'postedDate', 'salary']
+            for col in essential_cols:
+                if col not in temp_df.columns:
+                    logger.warning(f"Column '{col}' missing in loaded CSV DataFrame. Adding it with default values (None).")
+                    temp_df[col] = None
+
+            # Add similarityScore if missing (default to 0.0)
+            if 'similarityScore' not in temp_df.columns:
+                 temp_df['similarityScore'] = 0.0
+
+            # Safe serialization (handle numpy types, NaN/NaT)
+            for col in temp_df.select_dtypes(include=[pd.np.number]).columns:
+                 temp_df[col] = temp_df[col].apply(lambda x: float(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.floating, float)) else (int(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.integer, int)) else (None if pd.isna(x) else x)))
+
+            processed_jobs_list = temp_df.where(pd.notna(temp_df), None).to_dict(orient='records')
+            logger.info(f"Successfully processed {len(processed_jobs_list)} jobs into list.")
+            # Both list and matcher instance are valid
+            return processed_jobs_list, local_job_matcher
+        else:
+            # This case means JobMatcher initialized but its internal df is bad
+            logger.error("JobMatcher initialized, BUT its internal 'jobs_df' is missing, None, not a DataFrame, or empty AFTER its internal load attempt.")
+            return [], None # Return empty list, no valid matcher instance
+
+    except Exception as e:
+        # Catch any error during JobMatcher init or the processing above
+        logger.exception(f"CRITICAL ERROR during JobMatcher init or processing data from '{csv_path}': {e}")
+        return None, None # Indicate failure clearly
 
 
 # --- Lifespan Event Handler ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize state variables
-    app.state.jobs_data = []
+    app.state.jobs_data = [] # Default to empty list
     app.state.job_matcher = None
     app.state.resume_parser = None
     app.state.llm_evaluator = None
     app.state.resume_improver = None
-    app.state.csv_processor = None
+    app.state.csv_processor = None # Likely redundant now
 
-    logger.info("Application startup: Initializing components and loading data via lifespan...")
+    logger.info("Lifespan: Startup sequence initiated...")
     start_time = time.monotonic()
-    load_dotenv(dotenv_path=os.path.join(backend_dir, '.env')) # Use global backend_dir
+    load_dotenv(dotenv_path=os.path.join(backend_dir, '.env'))
 
-    # --- Path and File Setup ---
-    # Look for CSV *only* within the backend directory
+    # --- Determine CSV Path ---
     csv_file = os.path.join(backend_dir, 'job_title_des.csv')
-    found_csv = False
-
     if not os.path.exists(csv_file):
-        logger.error(f"CRITICAL: job_title_des.csv not found in backend directory: {csv_file}")
-        # Optionally create default, but log error regardless
-        logger.warning(f"Attempting to create default job_title_des.csv at {csv_file}")
-        try:
-            pd.DataFrame({
-                'id': [str(uuid.uuid4())], 'title': ['Sample Job - Default'], 'company': ['Default Co'],
-                'location': ['Default Location'], 'salary': [0], 'description': ['Default job description.'],
-                'requirements': ['None'], 'postedDate': [datetime.now().strftime('%Y-%m-%d')]
-            }).to_csv(csv_file, index=False)
-            logger.info(f"Successfully created default CSV: {csv_file}")
-            found_csv = True
-        except Exception as e:
-            logger.exception(f"Failed to create default CSV: {e}") # Use logger.exception
-            csv_file = None # Ensure it's None if creation failed
-    else:
-        logger.info(f"Found job_title_des.csv at: {csv_file}")
-        found_csv = True
+        logger.warning(f"job_title_des.csv not found in backend directory: {csv_file}. Trying root...")
+        root_csv_file = os.path.join(backend_dir, '..', 'job_title_des.csv')
+        if os.path.exists(root_csv_file):
+             logger.info(f"Found job_title_des.csv in root directory: {root_csv_file}")
+             csv_file = root_csv_file
+        else:
+            logger.error("job_title_des.csv not found in root either. Cannot load primary job data.")
+            csv_file = None # Set to None if not found
 
-    # --- Initialize components & Load Job Data ---
-    jobs_loaded_successfully = False
-    if JobMatcher and csv_file and found_csv:
-        try:
-            logger.info("Initializing JobMatcher...")
-            # Use a local variable first
-            local_job_matcher = JobMatcher(csv_path=csv_file)
-            logger.info(f"JobMatcher initialized with data from {csv_file}.")
-
-            # Check if jobs_df was loaded correctly inside JobMatcher
-            if hasattr(local_job_matcher, 'jobs_df') and local_job_matcher.jobs_df is not None and not local_job_matcher.jobs_df.empty:
-                 logger.info("JobMatcher has a non-empty jobs_df. Converting to app.state.jobs_data...")
-                 # Handle potential numpy types during conversion more safely
-                 temp_df = local_job_matcher.jobs_df.copy()
-                 for col in temp_df.select_dtypes(include=[pd.np.number]).columns:
-                     temp_df[col] = temp_df[col].apply(lambda x: float(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.floating, float)) else (int(x) if pd.notna(x) and hasattr(x, 'item') and isinstance(x, (pd.np.integer, int)) else x))
-                 # Convert NaN/NaT to None before to_dict
-                 app.state.jobs_data = temp_df.where(pd.notna(temp_df), None).to_dict(orient='records')
-                 app.state.job_matcher = local_job_matcher # Assign successful instance to app.state
-                 jobs_loaded_successfully = True
-                 logger.info(f"Loaded {len(app.state.jobs_data)} jobs into app.state.jobs_data.")
-            else:
-                 logger.warning("JobMatcher initialized, but its jobs_df attribute is empty or None after internal load.")
-                 app.state.jobs_data = [] # Ensure it's an empty list
-
-        except Exception as e:
-            # Use logger.exception to include traceback
-            logger.exception(f"Failed during JobMatcher initialization or data loading: {e}")
-            app.state.jobs_data = [] # Ensure empty list on failure
+    # --- Load Job Data using Helper ---
+    if csv_file:
+        jobs_list, matcher_instance = _load_and_process_jobs_robustly(csv_file)
+        # Only update state if loading was definitely successful
+        if jobs_list is not None: # None indicates a critical error during load/process
+            app.state.jobs_data = jobs_list
+            app.state.job_matcher = matcher_instance # Store instance (could be None if load failed inside helper)
+            logger.info(f"[startup] Stored {len(app.state.jobs_data)} jobs in app.state.jobs_data, id={id(app.state.jobs_data)}. Matcher instance stored: {'Yes' if app.state.job_matcher else 'No'}")
+        else:
+            logger.error("[startup] Helper function indicated failure loading/processing jobs. app.state.jobs_data remains empty.")
+            app.state.jobs_data = [] # Explicitly ensure empty list
             app.state.job_matcher = None
-    elif JobMatcher and not (csv_file and found_csv):
-         logger.error("JobMatcher class found, but CSV file is missing or path is invalid. Cannot initialize.")
-    elif not JobMatcher:
-         logger.error("JobMatcher class not found. Cannot initialize.")
+    else:
+        logger.error("[startup] Cannot load jobs, CSV file path is None.")
+        app.state.jobs_data = [] # Ensure empty list
+        app.state.job_matcher = None
 
-
-    # Initialize other components and store in app.state
+    # --- Initialize other components ---
+    # Store instances directly in app.state
     if ResumeParser:
-        try:
-            app.state.resume_parser = ResumeParser()
-            logger.info("ResumeParser initialized.")
+        try: app.state.resume_parser = ResumeParser(); logger.info("ResumeParser initialized and stored in app.state.")
         except Exception as e: logger.exception("Failed to initialize ResumeParser")
 
     gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-         logger.warning("GEMINI_API_KEY environment variable not set. LLM features will be unavailable.")
+    if not gemini_api_key: logger.warning("GEMINI_API_KEY env var not set. LLM features will be unavailable.")
 
     if LLMEvaluator and gemini_api_key:
-        try:
-            app.state.llm_evaluator = LLMEvaluator(gemini_api_key)
-            logger.info("LLMEvaluator initialized.")
+        try: app.state.llm_evaluator = LLMEvaluator(gemini_api_key); logger.info("LLMEvaluator initialized and stored in app.state.")
         except Exception as e: logger.exception("Failed to initialize LLMEvaluator")
-    elif LLMEvaluator and not gemini_api_key:
-         logger.warning("LLMEvaluator class found, but cannot initialize without GEMINI_API_KEY.")
 
     if ResumeImprover and gemini_api_key:
-        try:
-            app.state.resume_improver = ResumeImprover(gemini_api_key)
-            logger.info("ResumeImprover initialized.")
+        try: app.state.resume_improver = ResumeImprover(gemini_api_key); logger.info("ResumeImprover initialized and stored in app.state.")
         except Exception as e: logger.exception("Failed to initialize ResumeImprover")
-    elif ResumeImprover and not gemini_api_key:
-        logger.warning("ResumeImprover class found, but cannot initialize without GEMINI_API_KEY.")
 
-    if JobDataProcessor and csv_file and found_csv:
-        try:
-            app.state.csv_processor = JobDataProcessor(csv_file)
-            logger.info("JobDataProcessor initialized.")
-        except Exception as e: logger.exception("Failed to initialize JobDataProcessor")
-    elif JobDataProcessor and not (csv_file and found_csv):
-        logger.warning("JobDataProcessor class found, but CSV file path is invalid.")
+    # csv_processor might be redundant
+    # if JobDataProcessor and csv_file:
+    #     try: app.state.csv_processor = JobDataProcessor(csv_file); logger.info("JobDataProcessor initialized.")
+    #     except Exception as e: logger.exception("Failed to initialize JobDataProcessor")
 
     end_time = time.monotonic()
-    logger.info(f"Application startup sequence finished in {end_time - start_time:.4f}s. Jobs loaded: {jobs_loaded_successfully}")
+    logger.info(f"Lifespan: Startup sequence finished in {end_time - start_time:.4f}s. Final jobs in state: {len(app.state.jobs_data)}")
 
     yield # Application runs here
 
-    # Code to run on shutdown (optional)
-    logger.info("Application shutdown.")
+    logger.info("Lifespan: Shutdown.")
 
 
 # Create FastAPI app instance with lifespan manager
@@ -243,8 +227,7 @@ async def log_requests(request: Request, call_next):
         return response
     except Exception as e:
         process_time = time.monotonic() - start_time
-        logger.exception(f"Request Failed: {request.method} {request.url} - Took: {process_time:.4f}s") # Log full exception
-        # Return a generic 500 response instead of re-raising maybe?
+        logger.exception(f"Request Failed: {request.method} {request.url} - Took: {process_time:.4f}s")
         return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
 
@@ -262,30 +245,106 @@ class AddJobRequest(BaseModel):
 
 # --- API Endpoints ---
 @app.get("/") # Implicitly handles HEAD
-async def root_get(request: Request): # Add request parameter
-    """
-    Returns the list of jobs loaded into memory at startup (GET request).
-    """
+async def root_get(request: Request):
     logger.debug("Handling GET /")
-    # Access jobs from app.state
-    jobs = request.app.state.jobs_data if hasattr(request.app.state, 'jobs_data') else []
-    logger.info(f"Root endpoint returning {len(jobs)} jobs.")
+    # Safely access jobs_data from app.state
+    jobs = getattr(request.app.state, 'jobs_data', [])
+    logger.info(f"Root endpoint returning {len(jobs)} jobs from app.state, id={id(jobs)}")
     return jobs
 
 @app.head("/")
 async def root_head():
-    """
-    Handles HEAD requests for the root path. Returns empty response with headers.
-    """
     logger.debug("Handling HEAD /")
-    return Response(status_code=200) # Empty response is sufficient
+    return Response(status_code=200)
 
+@app.get("/jobs")
+async def get_jobs_endpoint(
+    request: Request,
+    query: Optional[str] = Query(None),
+    limit: int = Query(25)
+):
+    start_time = time.monotonic()
+    # Safely access jobs_data from app.state
+    jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
+    logger.info(f"[handler] /jobs sees {len(jobs_in_memory)} jobs in app.state, id={id(jobs_in_memory)}")
+
+    # Lazy-load fallback - only if state is empty AND JobMatcher class exists
+    if not jobs_in_memory and JobMatcher:
+        logger.warning("Job data in app.state is empty. Attempting lazy load...")
+        # Determine CSV path again
+        csv_path_check = os.path.join(backend_dir, 'job_title_des.csv')
+        if not os.path.exists(csv_path_check):
+             root_path_check = os.path.join(backend_dir, '..', 'job_title_des.csv')
+             if os.path.exists(root_path_check): csv_path_check = root_path_check
+             else: csv_path_check = None
+
+        if csv_path_check:
+            reloaded_jobs, _ = _load_and_process_jobs_robustly(csv_path_check)
+            if reloaded_jobs is not None:
+                 logger.info(f"Lazy load successful, found {len(reloaded_jobs)} jobs.")
+                 jobs_in_memory = reloaded_jobs # Use reloaded data for THIS request
+                 # Do NOT store back to app.state here in lazy load without locks
+            else:
+                 logger.error("Lazy load failed.")
+                 # Fall through to return empty list
+        else:
+             logger.error("Cannot lazy load: CSV path unknown.")
+        # If lazy load failed, jobs_in_memory will still be empty or potentially the newly loaded (but failed) empty list
+
+    # Proceed with filtering/returning whatever is in jobs_in_memory
+    try:
+        if query:
+            query_lower = query.lower()
+            filtered_jobs = [
+                job for job in jobs_in_memory if job and (
+                (job.get('title') and query_lower in str(job['title']).lower()) or
+                (job.get('description') and query_lower in str(job['description']).lower()) or
+                (job.get('company') and query_lower in str(job['company']).lower())
+                )
+            ]
+        else:
+            filtered_jobs = jobs_in_memory # Use the (potentially empty or lazy-loaded) list
+
+        results = filtered_jobs[:limit] # Apply limit
+        end_time = time.monotonic()
+        # Return 200 OK even if list is empty
+        logger.info(f"Finished /jobs query='{query}' in {end_time - start_time:.4f}s, returning {len(results)} results")
+        return results
+
+    except Exception as e:
+        end_time = time.monotonic()
+        logger.exception(f"Error in /jobs handler after {end_time - start_time:.4f}s")
+        raise HTTPException(status_code=500, detail=f"Error fetching jobs: {e}")
+
+@app.get("/jobs/{job_id}")
+async def get_job_endpoint(request: Request, job_id: str):
+    start_time = time.monotonic()
+    jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
+    logger.info(f"Starting /jobs/{job_id}. Handler sees {len(jobs_in_memory)} jobs in app.state, id={id(jobs_in_memory)}")
+
+    # No lazy load here, rely on startup state
+    if not jobs_in_memory:
+        logger.warning(f"Job data in app.state is empty when requesting job {job_id}.")
+        raise HTTPException(status_code=404, detail="Job data not available") # 404 is better if data should exist
+
+    try:
+        job = next((j for j in jobs_in_memory if j and str(j.get('id')) == str(job_id)), None)
+        if job is None:
+             logger.warning(f"Job with ID {job_id} not found in memory.")
+             raise HTTPException(status_code=404, detail="Job not found")
+        end_time = time.monotonic()
+        logger.info(f"Finished /jobs/{job_id} in {end_time - start_time:.4f}s")
+        return job
+    except HTTPException: raise
+    except Exception as e:
+        end_time = time.monotonic(); logger.exception(f"Error fetching job {job_id} after {end_time - start_time:.4f}s")
+        raise HTTPException(status_code=500, detail=f"Error fetching job: {e}")
 
 @app.post("/process-resume")
 async def process_uploaded_resume(request: Request, file: UploadFile = File(...)):
     start_time = time.monotonic()
     logger.info(f"Starting /process-resume for {file.filename}")
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
     if not local_resume_parser:
          logger.error("ResumeParser not available in app state.")
          raise HTTPException(status_code=503, detail="ResumeParser service not available")
@@ -320,15 +379,14 @@ async def process_uploaded_resume(request: Request, file: UploadFile = File(...)
     logger.info(f"Finished /process-resume for {file.filename} in {end_time - start_time:.4f}s")
     return result
 
-
 @app.post("/match-jobs")
 async def match_jobs_endpoint(request: Request, file: UploadFile = File(...)):
     start_time = time.monotonic()
     logger.info(f"Starting /match-jobs for {file.filename}")
     # Get instances from app.state
-    local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
-    local_llm_evaluator = request.app.state.llm_evaluator if hasattr(request.app.state, 'llm_evaluator') else None
+    local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
+    local_llm_evaluator = getattr(request.app.state, 'llm_evaluator', None)
 
     if not local_job_matcher:
          raise HTTPException(status_code=503, detail="JobMatcher service not available")
@@ -380,7 +438,7 @@ async def match_jobs_endpoint(request: Request, file: UploadFile = File(...)):
         # Use the app.state jobs_data list as fallback if needed
         if not top_match_details:
              top_match_id = matching_jobs[0]['id']
-             jobs_in_memory = request.app.state.jobs_data if hasattr(request.app.state, 'jobs_data') else []
+             jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
              top_match_details = next((job for job in jobs_in_memory if str(job.get('id')) == str(top_match_id)), None)
              if not top_match_details:
                   logger.error(f"Could not find details for top job {top_match_id} in loaded app state.")
@@ -403,90 +461,12 @@ async def match_jobs_endpoint(request: Request, file: UploadFile = File(...)):
              try: os.remove(temp_path)
              except Exception as cleanup_e: logger.error(f"Failed to cleanup temp file {temp_path} on error: {cleanup_e}")
 
-
-@app.get("/jobs")
-async def get_jobs_endpoint(
-    request: Request, # Add request parameter
-    query: Optional[str] = Query(None),
-    limit: int = Query(25)
-):
-    """Returns jobs, optionally filtered by query, from the in-memory list."""
-    start_time = time.monotonic()
-    # Access jobs from app.state via request
-    jobs_in_memory = request.app.state.jobs_data if hasattr(request.app.state, 'jobs_data') else []
-    logger.info(f"Starting /jobs query='{query}', limit={limit}. Handler sees {len(jobs_in_memory)} jobs in memory.")
-
-    if not jobs_in_memory: # Check if data was loaded
-        logger.warning("Job data in app.state is empty. Returning empty list.")
-        # Return 200 OK with empty list instead of 503
-        return []
-
-    try:
-        # Filter the in-memory list
-        if query:
-            query_lower = query.lower()
-            filtered_jobs = [
-                job for job in jobs_in_memory if job and ( # Check if job is not None
-                (job.get('title') and query_lower in str(job['title']).lower()) or
-                (job.get('description') and query_lower in str(job['description']).lower()) or
-                (job.get('company') and query_lower in str(job['company']).lower())
-                )
-            ]
-        else:
-            filtered_jobs = jobs_in_memory # Use the full list
-
-        # Apply limit
-        results = filtered_jobs[:limit]
-
-        end_time = time.monotonic()
-        logger.info(f"Finished /jobs query='{query}' in {end_time - start_time:.4f}s, returning {len(results)} results")
-        return results # Return list directly
-
-    except Exception as e:
-        end_time = time.monotonic()
-        logger.exception(f"Error in /jobs after {end_time - start_time:.4f}s")
-        raise HTTPException(status_code=500, detail=f"Error fetching jobs: {e}")
-
-
-@app.get("/jobs/{job_id}")
-async def get_job_endpoint(request: Request, job_id: str): # Add request parameter
-    """Gets a single job by ID from the in-memory list."""
-    start_time = time.monotonic()
-    # Access jobs from app.state
-    jobs_in_memory = request.app.state.jobs_data if hasattr(request.app.state, 'jobs_data') else []
-    logger.info(f"Starting /jobs/{job_id}. Handler sees {len(jobs_in_memory)} jobs in memory.")
-
-
-    if not jobs_in_memory:
-        logger.warning(f"Job data in app.state is empty when requesting job {job_id}.")
-        raise HTTPException(status_code=404, detail="Job data not available") # 404 might be more appropriate
-
-    try:
-        # Find job in the app.state list
-        job = next((job for job in jobs_in_memory if job and str(job.get('id')) == str(job_id)), None)
-
-        if job is None:
-             logger.warning(f"Job with ID {job_id} not found in memory.")
-             raise HTTPException(status_code=404, detail="Job not found")
-
-        end_time = time.monotonic()
-        logger.info(f"Finished /jobs/{job_id} in {end_time - start_time:.4f}s")
-        return job # Return the dictionary directly
-
-    except HTTPException:
-        raise # Re-raise specific HTTP exceptions
-    except Exception as e:
-        end_time = time.monotonic()
-        logger.exception(f"Error fetching job {job_id} after {end_time - start_time:.4f}s")
-        raise HTTPException(status_code=500, detail=f"Error fetching job: {e}")
-
-
 @app.post("/improvement-plan")
-async def generate_improvement_plan_endpoint(request: Request): # Add request parameter
+async def generate_improvement_plan_endpoint(request: Request):
     start_time = time.monotonic()
     logger.info("Starting /improvement-plan")
     # Get instance from app.state
-    local_resume_improver = request.app.state.resume_improver if hasattr(request.app.state, 'resume_improver') else None
+    local_resume_improver = getattr(request.app.state, 'resume_improver', None)
     if not local_resume_improver:
         raise HTTPException(status_code=501, detail="ResumeImprover service not available")
 
@@ -512,19 +492,13 @@ async def generate_improvement_plan_endpoint(request: Request): # Add request pa
         logger.exception(f"Error in /improvement-plan after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error generating improvement plan: {e}")
 
-
-# --- Helper for finding latest resume --- (Keep as is)
-def _find_latest_resume_path(base_dir: str) -> Optional[str]:
-    # ... (implementation remains the same)
-    pass
-
 @app.post("/jobs/{job_id}/match")
-async def match_single_job(request: Request, job_id: str): # Add request parameter
+async def match_single_job(request: Request, job_id: str):
     start_time = time.monotonic()
     logger.info(f"Starting single job match for job_id={job_id}")
     # Get instances from app.state
-    local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
 
     if not local_job_matcher: raise HTTPException(status_code=503, detail="JobMatcher not available")
     if not local_resume_parser: raise HTTPException(status_code=503, detail="ResumeParser not available")
@@ -553,7 +527,6 @@ async def match_single_job(request: Request, job_id: str): # Add request paramet
         logger.exception(f"Error matching single job {job_id} after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error matching job {job_id}: {e}")
 
-
 @app.get("/resumes")
 async def get_resumes_endpoint():
     # Logic remains mostly the same, using backend_dir defined globally
@@ -579,10 +552,10 @@ async def get_resumes_endpoint():
         return {"resumes": [], "error": str(e)}
 
 @app.get("/resumes/{resume_id}")
-async def get_resume_endpoint(request: Request, resume_id: str): # Add request parameter
+async def get_resume_endpoint(request: Request, resume_id: str):
     # Logic remains mostly the same, uses global backend_dir
     # Access resume_parser via request.app.state
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
     start_time = time.monotonic()
     logger.info(f"Starting /resumes/{resume_id} GET")
     resumes_json_path = os.path.join(backend_dir, '..', 'resumes.json')
@@ -627,7 +600,6 @@ async def get_resume_endpoint(request: Request, resume_id: str): # Add request p
         end_time = time.monotonic()
         logger.exception(f"Error fetching resume {resume_id} after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error fetching resume: {e}")
-
 
 @app.delete("/resumes/{resume_id}")
 async def delete_resume_endpoint(resume_id: str):
@@ -702,7 +674,6 @@ async def delete_resume_endpoint(resume_id: str):
         logger.exception(f"Error deleting resume {resume_id} after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error deleting resume: {e}")
 
-
 @app.post("/upload-resume")
 async def upload_resume_endpoint(file: UploadFile = File(...)):
     # Logic remains mostly the same, uses global backend_dir
@@ -762,13 +733,12 @@ async def upload_resume_endpoint(file: UploadFile = File(...)):
             os.remove(file_path_absolute)
         raise HTTPException(status_code=500, detail=f"Error uploading resume: {e}")
 
-
 @app.post("/jobs")
-async def add_job_endpoint(request: Request, job: AddJobRequest): # Add request parameter
+async def add_job_endpoint(request: Request, job: AddJobRequest):
      start_time = time.monotonic()
      logger.info(f"Starting POST /jobs for title: {job.title}")
      # Get job_matcher instance from app.state
-     local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
+     local_job_matcher = getattr(request.app.state, 'job_matcher', None)
      if not local_job_matcher:
          raise HTTPException(status_code=503, detail="JobMatcher service not available")
      try:
@@ -817,32 +787,13 @@ async def add_job_endpoint(request: Request, job: AddJobRequest): # Add request 
          logger.exception(f"Error adding job after {end_time - start_time:.4f}s")
          raise HTTPException(status_code=500, detail=f"Error adding job: {e}")
 
-
-# --- Gemini Endpoints (Simplified with Timing & app.state) ---
-async def _call_gemini_timed(func, *args, func_name="Gemini Call"):
-    start_time = time.monotonic()
-    logger.info(f"Starting {func_name}...")
-    try:
-        if func is None or not callable(func):
-             raise NotImplementedError(f"{func_name} function is not available.")
-        result = func(*args)
-        if asyncio.iscoroutine(result): result = await result # Await if necessary
-        duration = time.monotonic() - start_time
-        logger.info(f"{func_name} completed in {duration:.4f}s")
-        return result
-    except Exception as e:
-        duration = time.monotonic() - start_time
-        logger.exception(f"{func_name} failed after {duration:.4f}s")
-        raise # Re-raise the exception
-
-
 @app.post("/jobs/{job_id}/tailor-resume")
-async def tailor_resume_endpoint(request: Request, job_id: str): # Add request parameter
+async def tailor_resume_endpoint(request: Request, job_id: str):
     start_time = time.monotonic()
     logger.info(f"Starting /tailor-resume for job_id={job_id}")
     # Get instances from app.state
-    local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
 
     if not local_job_matcher: raise HTTPException(status_code=503, detail="JobMatcher not available")
     if not local_resume_parser: raise HTTPException(status_code=503, detail="ResumeParser not available")
@@ -872,12 +823,12 @@ async def tailor_resume_endpoint(request: Request, job_id: str): # Add request p
         raise HTTPException(status_code=500, detail=f"Error tailoring resume: {e}")
 
 @app.post("/jobs/{job_id}/generate-cover-letter")
-async def generate_cover_letter_endpoint(request: Request, job_id: str): # Add request parameter
+async def generate_cover_letter_endpoint(request: Request, job_id: str):
     start_time = time.monotonic()
     logger.info(f"Starting /generate-cover-letter for job_id={job_id}")
     # Get instances from app.state
-    local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
 
     if not local_job_matcher: raise HTTPException(status_code=503, detail="JobMatcher not available")
     if not local_resume_parser: raise HTTPException(status_code=503, detail="ResumeParser not available")
@@ -905,14 +856,13 @@ async def generate_cover_letter_endpoint(request: Request, job_id: str): # Add r
         logger.exception(f"Error in /generate-cover-letter after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error generating cover letter: {e}")
 
-
 @app.post("/jobs/{job_id}/generate-roadmap")
-async def generate_roadmap_endpoint(request: Request, job_id: str): # Add request parameter
+async def generate_roadmap_endpoint(request: Request, job_id: str):
     start_time = time.monotonic()
     logger.info(f"Starting /generate-roadmap for job_id={job_id}")
     # Get instances from app.state
-    local_job_matcher = request.app.state.job_matcher if hasattr(request.app.state, 'job_matcher') else None
-    local_resume_parser = request.app.state.resume_parser if hasattr(request.app.state, 'resume_parser') else None
+    local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+    local_resume_parser = getattr(request.app.state, 'resume_parser', None)
 
     if not local_job_matcher: raise HTTPException(status_code=503, detail="JobMatcher not available")
     if not local_resume_parser: raise HTTPException(status_code=503, detail="ResumeParser not available")
@@ -940,11 +890,9 @@ async def generate_roadmap_endpoint(request: Request, job_id: str): # Add reques
         logger.exception(f"Error in /generate-roadmap after {end_time - start_time:.4f}s")
         raise HTTPException(status_code=500, detail=f"Error generating roadmap: {e}")
 
-
 # --- Main Execution Guard ---
 if __name__ == "__main__":
-    # This block is primarily for local development runs
-    port = int(os.environ.get("PORT", 8080)) # Use 8080 default for Render/Cloud Run compatibility
+    port = int(os.environ.get("PORT", 8080))
     logger.info(f"Starting Uvicorn development server on host 0.0.0.0, port {port} with reload")
-    # Enable reload only for local dev runs - use "main:app" string to allow reload to work
+    # Use "main:app" string for reload to work correctly
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

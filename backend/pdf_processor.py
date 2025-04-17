@@ -16,7 +16,17 @@ class PDFProcessor:
         with open(pdf_path, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
             for page in reader.pages:
-                text += page.extract_text() + "\n"
+                text += page.extract_text() or "" # Add fallback for empty pages
+        return text
+
+    def clean_text(self, text: str) -> str:
+        """Basic text cleaning (placeholder - implement actual cleaning if needed)."""
+        if not isinstance(text, str):
+            return ""
+        # Example basic cleaning: remove extra whitespace
+        text = re.sub(r'\s+', ' ', text).strip()
+        # Add more cleaning rules here if necessary (e.g., remove headers/footers)
+        print(f"PDFProcessor: Ran clean_text (returning cleaned text).") # Log when called
         return text
 
 def extract_text_from_pdf(pdf_path: str) -> str:
