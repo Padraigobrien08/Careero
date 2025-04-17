@@ -347,17 +347,37 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
     // Calculate match score if not already calculated
     if (!jobScores[job.id]) {
       try {
+        // TODO: Get the actual resume text content before this call
+        const currentResumeText = "/* Get current resume text here */"; // Replace with actual resume text retrieval
+        
+        if (!currentResumeText || currentResumeText === "/* Get current resume text here */") {
+          console.warn("Resume text not available, skipping match score calculation.");
+          // Optionally set score to a specific value like -1 or null to indicate missing resume
+          setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Example: set score to -1
+          return; // Don't make the fetch call if no resume text
+        }
+
         const response = await fetch(`${API_BASE_URL}/jobs/${job.id}/match`, {
           method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Add other headers like Authorization if needed
+          },
+          body: JSON.stringify({ resume_text: currentResumeText })
         });
-        if (!response.ok) throw new Error('Failed to calculate match score');
+        if (!response.ok) {
+           const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error response' }));
+           throw new Error(errorData.detail || `Failed to calculate match score: ${response.status}`);
+        }
         const data = await response.json();
         setJobScores(prev => ({
           ...prev,
-          [job.id]: data.similarityScore
+          [job.id]: data.similarity_score // Ensure backend sends 'similarity_score'
         }));
       } catch (err) {
         console.error('Error calculating match score:', err);
+        // Set score to indicate error, e.g., -1 or null
+        setJobScores(prev => ({ ...prev, [job.id]: -1 })); 
       }
     }
   };
@@ -813,7 +833,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                   
                   <Typography variant="h6" gutterBottom>Requirements</Typography>
                   <List>
-                    {selectedJob.requirements.map((req, index) => (
+                    {(selectedJob.requirements || []).map((req, index) => (
                       <ListItem key={index} sx={{ py: 0 }}>
                         <Typography>• {req}</Typography>
                       </ListItem>
