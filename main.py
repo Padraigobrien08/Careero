@@ -911,5 +911,3 @@ if __name__ == "__main__":
     logger.info(f"Starting Uvicorn development server on host 0.0.0.0, port {port} with reload")
     # Use "main:app" string for reload to work correctly
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
-
-    
