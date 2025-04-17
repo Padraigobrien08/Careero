@@ -127,6 +127,52 @@ def _load_and_process_jobs_robustly(csv_path: str) -> Tuple[Optional[List[Dict]]
         return None, None # Indicate failure clearly
 
 
+# --- Helper Function for Direct CSV Loading ---
+def _load_jobs_directly(csv_path: str) -> Optional[List[Dict]]:
+    """Loads jobs directly from CSV, processes, and returns a list of dicts."""
+    if not csv_path or not os.path.exists(csv_path):
+         logger.error(f"Direct load failed: CSV path is invalid or file doesn't exist ('{csv_path}').")
+         return None
+    try:
+        logger.info(f"Directly reading CSV: {csv_path}")
+        df = pd.read_csv(csv_path)
+        logger.info(f"Direct load successful. DF shape: {df.shape}. Processing for app state...")
+
+        # Ensure essential columns exist, add if missing
+        essential_cols = ['id', 'title', 'company', 'location', 'description', 'requirements', 'postedDate', 'salary', 'similarityScore']
+        for col in essential_cols:
+            if col not in df.columns:
+                logger.warning(f"Direct load: Column '{col}' missing. Adding with default.")
+                if col == 'similarityScore':
+                    df[col] = 0.0 # Default score
+                else:
+                    df[col] = None # Default value
+
+        # Ensure 'id' is string and handle potential NaNs before conversion
+        if 'id' in df.columns:
+             df['id'] = df['id'].fillna(pd.Series([str(uuid.uuid4()) for _ in range(len(df))]))
+             df['id'] = df['id'].astype(str)
+        else: # Should not happen if added above, but safety check
+             df['id'] = [str(uuid.uuid4()) for _ in range(len(df))]
+
+
+        # Safe serialization (handle numpy types, NaN/NaT -> None)
+        temp_df = df.copy()
+        for col in temp_df.select_dtypes(include=[pd.np.number]).columns:
+             temp_df[col] = temp_df[col].apply(lambda x: float(x) if pd.notna(x) and isinstance(x, (pd.np.floating, float)) else (int(x) if pd.notna(x) and isinstance(x, (pd.np.integer, int)) else (None if pd.isna(x) else x)))
+        # Handle object columns that might contain NaN/NaT
+        for col in temp_df.select_dtypes(include=['object']).columns:
+             temp_df[col] = temp_df[col].apply(lambda x: None if pd.isna(x) else x)
+
+        processed_jobs_list = temp_df.where(pd.notna(temp_df), None).to_dict(orient='records')
+        logger.info(f"Direct load: Successfully processed {len(processed_jobs_list)} jobs into list.")
+        return processed_jobs_list
+
+    except Exception as e:
+        logger.exception(f"CRITICAL ERROR during direct CSV load/processing from '{csv_path}': {e}")
+        return None
+
+
 # --- Lifespan Event Handler ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -154,22 +200,18 @@ async def lifespan(app: FastAPI):
             logger.error("job_title_des.csv not found in root either. Cannot load primary job data.")
             csv_file = None # Set to None if not found
 
-    # --- Load Job Data using Helper ---
+    # --- Load Job Data DIRECTLY into app.state ---
     if csv_file:
-        jobs_list, matcher_instance = _load_and_process_jobs_robustly(csv_file)
-        # Only update state if loading was definitely successful
-        if jobs_list is not None: # None indicates a critical error during load/process
+        jobs_list = _load_jobs_directly(csv_file)
+        if jobs_list is not None:
             app.state.jobs_data = jobs_list
-            app.state.job_matcher = matcher_instance # Store instance (could be None if load failed inside helper)
-            logger.info(f"[startup] Stored {len(app.state.jobs_data)} jobs in app.state.jobs_data, id={id(app.state.jobs_data)}. Matcher instance stored: {'Yes' if app.state.job_matcher else 'No'}")
+            logger.info(f"[startup] DIRECTLY loaded {len(app.state.jobs_data)} jobs into app.state.jobs_data, id={id(app.state.jobs_data)}")
         else:
-            logger.error("[startup] Helper function indicated failure loading/processing jobs. app.state.jobs_data remains empty.")
-            app.state.jobs_data = [] # Explicitly ensure empty list
-            app.state.job_matcher = None
+            logger.error("[startup] Failed to load jobs directly from CSV. app.state.jobs_data remains empty.")
+            app.state.jobs_data = [] # Ensure empty
     else:
         logger.error("[startup] Cannot load jobs, CSV file path is None.")
-        app.state.jobs_data = [] # Ensure empty list
-        app.state.job_matcher = None
+        app.state.jobs_data = [] # Ensure empty
 
     # --- Initialize other components ---
     # Store instances directly in app.state
@@ -264,34 +306,17 @@ async def get_jobs_endpoint(
     limit: int = Query(25)
 ):
     start_time = time.monotonic()
-    # Safely access jobs_data from app.state
+    # Directly use app.state.jobs_data loaded at startup
     jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
     logger.info(f"[handler] /jobs sees {len(jobs_in_memory)} jobs in app.state, id={id(jobs_in_memory)}")
 
-    # Lazy-load fallback - only if state is empty AND JobMatcher class exists
-    if not jobs_in_memory and JobMatcher:
-        logger.warning("Job data in app.state is empty. Attempting lazy load...")
-        # Determine CSV path again
-        csv_path_check = os.path.join(backend_dir, 'job_title_des.csv')
-        if not os.path.exists(csv_path_check):
-             root_path_check = os.path.join(backend_dir, '..', 'job_title_des.csv')
-             if os.path.exists(root_path_check): csv_path_check = root_path_check
-             else: csv_path_check = None
+    # If state is empty after startup, return empty list (200 OK)
+    # No lazy load here - rely on successful startup load
+    if not jobs_in_memory:
+        logger.warning("Job data in app.state is empty. Returning empty list.")
+        return []
 
-        if csv_path_check:
-            reloaded_jobs, _ = _load_and_process_jobs_robustly(csv_path_check)
-            if reloaded_jobs is not None:
-                 logger.info(f"Lazy load successful, found {len(reloaded_jobs)} jobs.")
-                 jobs_in_memory = reloaded_jobs # Use reloaded data for THIS request
-                 # Do NOT store back to app.state here in lazy load without locks
-            else:
-                 logger.error("Lazy load failed.")
-                 # Fall through to return empty list
-        else:
-             logger.error("Cannot lazy load: CSV path unknown.")
-        # If lazy load failed, jobs_in_memory will still be empty or potentially the newly loaded (but failed) empty list
-
-    # Proceed with filtering/returning whatever is in jobs_in_memory
+    # Proceed with filtering/returning jobs_in_memory
     try:
         if query:
             query_lower = query.lower()
@@ -303,11 +328,10 @@ async def get_jobs_endpoint(
                 )
             ]
         else:
-            filtered_jobs = jobs_in_memory # Use the (potentially empty or lazy-loaded) list
+            filtered_jobs = jobs_in_memory
 
-        results = filtered_jobs[:limit] # Apply limit
+        results = filtered_jobs[:limit]
         end_time = time.monotonic()
-        # Return 200 OK even if list is empty
         logger.info(f"Finished /jobs query='{query}' in {end_time - start_time:.4f}s, returning {len(results)} results")
         return results
 
@@ -321,24 +345,14 @@ async def get_job_endpoint(request: Request, job_id: str):
     start_time = time.monotonic()
     jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
     logger.info(f"Starting /jobs/{job_id}. Handler sees {len(jobs_in_memory)} jobs in app.state, id={id(jobs_in_memory)}")
-
-    # No lazy load here, rely on startup state
-    if not jobs_in_memory:
-        logger.warning(f"Job data in app.state is empty when requesting job {job_id}.")
-        raise HTTPException(status_code=404, detail="Job data not available") # 404 is better if data should exist
-
+    if not jobs_in_memory: raise HTTPException(status_code=404, detail="Job data not available")
     try:
         job = next((j for j in jobs_in_memory if j and str(j.get('id')) == str(job_id)), None)
-        if job is None:
-             logger.warning(f"Job with ID {job_id} not found in memory.")
-             raise HTTPException(status_code=404, detail="Job not found")
-        end_time = time.monotonic()
-        logger.info(f"Finished /jobs/{job_id} in {end_time - start_time:.4f}s")
+        if job is None: raise HTTPException(status_code=404, detail="Job not found")
+        end_time = time.monotonic(); logger.info(f"Finished /jobs/{job_id} in {end_time - start_time:.4f}s")
         return job
     except HTTPException: raise
-    except Exception as e:
-        end_time = time.monotonic(); logger.exception(f"Error fetching job {job_id} after {end_time - start_time:.4f}s")
-        raise HTTPException(status_code=500, detail=f"Error fetching job: {e}")
+    except Exception as e: end_time = time.monotonic(); logger.exception(f"Error fetching job {job_id} after {end_time - start_time:.4f}s"); raise HTTPException(status_code=500, detail=f"Error fetching job: {e}")
 
 @app.post("/process-resume")
 async def process_uploaded_resume(request: Request, file: UploadFile = File(...)):
