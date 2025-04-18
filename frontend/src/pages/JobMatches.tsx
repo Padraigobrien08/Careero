@@ -511,6 +511,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const data = await response.json();
+      console.log("[handleTailorResume] Received data:", JSON.stringify(data, null, 2)); // Log the received data structure
       setTailoredResume(data); // Assuming backend returns the tailored resume structure
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(1); // Switch to the Tailored Resume tab
