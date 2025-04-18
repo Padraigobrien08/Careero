@@ -377,26 +377,26 @@ async def generate_improvement_plan_endpoint(request: Request):
 @app.post("/jobs/{job_id}/match")
 async def match_single_job(request: Request, job_id: str):
     local_job_matcher = getattr(request.app.state, 'job_matcher', None)
-    local_resume_parser = getattr(request.app.state, 'resume_parser', None) # Assume resume context is available/needed
+    # local_resume_parser = getattr(request.app.state, 'resume_parser', None) # Not needed if resume_text comes in body
     jobs_in_memory = getattr(request.app.state, 'jobs_data', [])
 
     if not local_job_matcher: raise HTTPException(503, "JobMatcher unavailable.")
-    if not local_resume_parser: raise HTTPException(503, "ResumeParser unavailable.") # Or handle differently if no resume needed
+    # if not local_resume_parser: raise HTTPException(503, "ResumeParser unavailable.") # Remove if not needed
 
     # Find the specific job
     job = next((j for j in jobs_in_memory if j and str(j.get('id')) == str(job_id)), None)
     if job is None: raise HTTPException(status_code=404, detail="Job not found")
+    if not job.get('description'): raise HTTPException(status_code=404, detail="Job description missing") # Need description
 
     logger.info(f"Matching single job {job_id}...")
     try:
-        # Needs resume text - how is it provided? Request body? Session?
-        # Placeholder: Assume resume_text comes from request body
+        # Needs resume text - assuming from request body
         body = await request.json()
         resume_text = body.get("resume_text")
         if not resume_text: raise HTTPException(400, "resume_text missing in request")
 
-        # Assuming JobMatcher has a method to calculate similarity for a single job
-        similarity_score = local_job_matcher.calculate_similarity_for_job(resume_text, job) # Adjust method/args
+        # Use the correct JobMatcher method and pass job description
+        similarity_score = local_job_matcher.calculate_similarity(resume_text, job['description'])
         return {"job_id": job_id, "similarity_score": similarity_score}
     except Exception as e:
         logger.exception(f"Error matching single job {job_id}: {e}")
@@ -542,14 +542,14 @@ async def tailor_resume_endpoint(request: Request, job_id: str):
 
     logger.info(f"Tailoring resume for job {job_id}...")
     try:
-        # Needs resume text - assuming from request body
         body = await request.json()
         resume_text = body.get("resume_text")
         if not resume_text: raise HTTPException(400, "resume_text missing in request")
 
-        # Call the imported Gemini service function
-        tailored_resume_text = await gemini_tailor_resume(resume_text, job) # Pass job dict
-        return {"job_id": job_id, "tailored_resume": tailored_resume_text}
+        # Call the imported Gemini service function WITHOUT await
+        tailored_resume_result = gemini_tailor_resume(resume_text, job) # Pass job dict
+        # Assuming the function returns the structure needed by frontend
+        return tailored_resume_result 
 
     except Exception as e:
         logger.exception(f"Error tailoring resume for job {job_id}: {e}")
@@ -575,7 +575,8 @@ async def generate_cover_letter_endpoint(request: Request, job_id: str):
         resume_text = body.get("resume_text")
         if not resume_text: raise HTTPException(400, "resume_text missing in request")
 
-        cover_letter_text = await gemini_generate_cover_letter(resume_text, job)
+        # Call the imported Gemini service function WITHOUT await
+        cover_letter_text = gemini_generate_cover_letter(resume_text, job)
         return {"job_id": job_id, "cover_letter": cover_letter_text}
 
     except Exception as e:
@@ -602,8 +603,10 @@ async def generate_roadmap_endpoint(request: Request, job_id: str):
         resume_text = body.get("resume_text")
         if not resume_text: raise HTTPException(400, "resume_text missing in request")
 
-        roadmap_text = await gemini_generate_roadmap(resume_text, job)
-        return {"job_id": job_id, "roadmap": roadmap_text}
+        # Call the imported Gemini service function WITHOUT await
+        roadmap_result = gemini_generate_roadmap(resume_text, job)
+        # Assuming the function returns the structure needed by frontend
+        return {"job_id": job_id, "roadmap": roadmap_result}
 
     except Exception as e:
         logger.exception(f"Error generating roadmap for job {job_id}: {e}")
