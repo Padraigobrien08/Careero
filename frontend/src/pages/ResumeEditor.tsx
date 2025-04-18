@@ -232,17 +232,8 @@ const ResumeEditor: React.FC = () => {
               <List>
                 <ListItem>
                   <ListItemText
-                    primary={getMostRecentResume()?.name}
-                    secondary={`Uploaded: ${formatDate(getMostRecentResume()?.uploadedAt || '')}`}
+                    primary={getMostRecentResume()}
                   />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleViewResume(getMostRecentResume()!)}>
-                      <Description />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteResume(getMostRecentResume()?.id || '')}>
-                      <Delete />
-                    </IconButton>
-                  </ListItemSecondaryAction>
                 </ListItem>
               </List>
             </Paper>
