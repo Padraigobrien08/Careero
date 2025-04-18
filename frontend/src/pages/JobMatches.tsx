@@ -511,7 +511,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const data = await response.json();
-      console.log("[handleTailorResume] Received data:", JSON.stringify(data, null, 2)); // Log the received data structure
+      console.log("!!! handleTailorResume: Data Received !!!", data); // Simplified log
       setTailoredResume(data); // Assuming backend returns the tailored resume structure
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(1); // Switch to the Tailored Resume tab
@@ -965,32 +965,47 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                       variant="outlined" 
                       startIcon={<Download />}
                       onClick={() => {
-                        // Adjust copy logic based on actual structure if needed
-                        const text = Array.isArray(tailoredResume.sections) 
-                          ? tailoredResume.sections.map(section => 
-                              `${section.title}\n${section.content}\n\n`).join('')
-                          : JSON.stringify(tailoredResume); // Fallback copy
-                        navigator.clipboard.writeText(text);
-                        alert('Tailored resume data copied to clipboard!');
+                        // Format the object into a readable string for copying
+                        let copyText = "";
+                        for (const [key, value] of Object.entries(tailoredResume)) {
+                          if (Array.isArray(value)) {
+                            copyText += `**${key.replace(/_/g, ' ').toUpperCase()}**\n`;
+                            copyText += value.join('\n') + '\n\n';
+                          }
+                        }
+                        navigator.clipboard.writeText(copyText.trim());
+                        alert('Tailored resume suggestions copied to clipboard!');
                       }}
                     >
-                      Copy to Clipboard
+                      Copy Suggestions
                     </Button>
                   </Box>
                   
-                  {/* Add check for sections array */}
-                  {Array.isArray(tailoredResume.sections) ? (
-                    tailoredResume.sections.map((section, index) => (
-                      <Box key={index} sx={{ mb: 3 }}>
-                        <Typography variant="h6" gutterBottom>{section.title}</Typography>
-                        <Typography paragraph style={{ whiteSpace: 'pre-line' }}>
-                          {section.content}
-                        </Typography>
-                      </Box>
-                    ))
-                  ) : (
-                    <Typography>Tailored resume data is available but not in the expected format (missing sections array).</Typography>
-                  )}
+                  {/* Iterate through the properties of the tailoredResume object */}
+                  {Object.entries(tailoredResume).map(([key, value]) => {
+                    // Check if the value is an array before trying to map it
+                    if (Array.isArray(value)) {
+                      return (
+                        <Box key={key} sx={{ mb: 3 }}>
+                          {/* Format the key as a heading */}
+                          <Typography variant="h6" gutterBottom>
+                            {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </Typography>
+                          <List dense>
+                            {value.map((item, index) => (
+                              <ListItem key={index} sx={{ py: 0.5 }}>
+                                <Typography variant="body1">• {String(item)}</Typography>
+                              </ListItem>
+                            ))}
+                          </List>
+                        </Box>
+                      );
+                    } else {
+                       // Optionally render non-array properties if needed
+                       // console.log("Skipping non-array property:", key);
+                       return null;
+                    }
+                  })}
                 </Box>
               )}
               
