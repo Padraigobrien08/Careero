@@ -39,7 +39,7 @@ interface ParsedResume {
 }
 
 const ResumeEditor: React.FC = () => {
-  const [resumes, setResumes] = useState<Resume[]>([]);
+  const [resumes, setResumes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
