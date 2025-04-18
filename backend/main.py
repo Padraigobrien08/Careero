@@ -432,8 +432,8 @@ async def get_resume_endpoint(request: Request, resume_id: str):
         # Returning parsed content as example
         with open(file_path, "rb") as f:
             content = f.read()
-        # Pass only the content to the parse method
-        parsed_data = local_resume_parser.parse(content) # Assuming parse only needs content
+        # Pass content AND filename (resume_id) to parse method
+        parsed_data = local_resume_parser.parse(content, resume_id) 
         # Return a structure consistent with what getCurrentResumeText expects
         return {"filename": resume_id, "parsed_data": parsed_data}
     except Exception as e:
