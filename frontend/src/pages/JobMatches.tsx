@@ -460,18 +460,19 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const result = await response.json();
-      
-      // Create a new job object with the response data
-      const newJob: Job = {
-        id: result.job.id,
-        title: result.job.title,
-        company: result.job.company,
-        location: result.job.location,
-        salary: result.job.salary,
-        description: result.job.description,
-        requirements: Array.isArray(result.job.requirements) ? result.job.requirements : [],
-        postedDate: result.job.postedDate,
-        similarityScore: result.job.similarityScore
+      console.log("[handleAddJob] Received result:", result); // Add log to see the structure
+
+      // Create a new job object with the response data (access directly from result)
+      const newJob: Job = { 
+        id: result.id, // Access result.id directly
+        title: result.title, // Access result.title directly
+        company: result.company, // etc.
+        location: result.location,
+        salary: result.salary,
+        description: result.description,
+        requirements: Array.isArray(result.requirements) ? result.requirements : [],
+        postedDate: result.postedDate,
+        similarityScore: result.similarityScore ?? 0.0 // Use nullish coalescing for default
       };
 
       // Set the newly added job for the highlighted section
