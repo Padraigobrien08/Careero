@@ -964,24 +964,32 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                       variant="outlined" 
                       startIcon={<Download />}
                       onClick={() => {
-                        const text = tailoredResume.sections.map(section => 
-                          `${section.title}\n${section.content}\n\n`).join('');
+                        // Adjust copy logic based on actual structure if needed
+                        const text = Array.isArray(tailoredResume.sections) 
+                          ? tailoredResume.sections.map(section => 
+                              `${section.title}\n${section.content}\n\n`).join('')
+                          : JSON.stringify(tailoredResume); // Fallback copy
                         navigator.clipboard.writeText(text);
-                        alert('Resume copied to clipboard!');
+                        alert('Tailored resume data copied to clipboard!');
                       }}
                     >
                       Copy to Clipboard
                     </Button>
                   </Box>
                   
-                  {tailoredResume.sections.map((section, index) => (
-                    <Box key={index} sx={{ mb: 3 }}>
-                      <Typography variant="h6" gutterBottom>{section.title}</Typography>
-                      <Typography paragraph style={{ whiteSpace: 'pre-line' }}>
-                        {section.content}
-                      </Typography>
-                    </Box>
-                  ))}
+                  {/* Add check for sections array */}
+                  {Array.isArray(tailoredResume.sections) ? (
+                    tailoredResume.sections.map((section, index) => (
+                      <Box key={index} sx={{ mb: 3 }}>
+                        <Typography variant="h6" gutterBottom>{section.title}</Typography>
+                        <Typography paragraph style={{ whiteSpace: 'pre-line' }}>
+                          {section.content}
+                        </Typography>
+                      </Box>
+                    ))
+                  ) : (
+                    <Typography>Tailored resume data is available but not in the expected format (missing sections array).</Typography>
+                  )}
                 </Box>
               )}
               
