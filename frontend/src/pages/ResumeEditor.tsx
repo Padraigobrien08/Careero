@@ -261,17 +261,16 @@ const ResumeEditor: React.FC = () => {
               </Button>
             </Box>
             <List>
-              {resumes.map((resume) => (
-                <ListItem key={resume.id}>
+              {resumes.map((filename) => (
+                <ListItem key={filename}>
                   <ListItemText
-                    primary={resume.name}
-                    secondary={`Uploaded: ${formatDate(resume.uploadedAt)}`}
+                    primary={filename}
                   />
                   <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleViewResume(resume)}>
+                    <IconButton edge="end" onClick={() => handleViewResume({ name: filename, id: filename, path: '', uploadedAt: '' })}>
                       <Description />
                     </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteResume(resume.id)}>
+                    <IconButton edge="end" onClick={() => handleDeleteResume(filename)}>
                       <Delete />
                     </IconButton>
                   </ListItemSecondaryAction>
