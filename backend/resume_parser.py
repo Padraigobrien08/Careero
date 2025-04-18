@@ -20,39 +20,56 @@ class ResumeParser:
         self.experience_pattern = re.compile(r'(?i)(?:experience|work history|employment)[:.\s]+(.*?)(?=\n\n|\Z)', re.DOTALL)
         self.education_pattern = re.compile(r'(?i)(?:education|academic background|qualifications)[:.\s]+(.*?)(?=\n\n|\Z)', re.DOTALL)
 
-    def parse(self, file_path=None):
-        """Parse the resume file and extract information"""
-        if file_path:
-            self.file_path = file_path
-            
-        if not self.file_path:
-            raise ValueError("No file path provided")
+    def parse(self, content: bytes, filename: str):
+        """Parse the resume file content and extract information, using filename to determine type."""
+        
+        if not filename:
+            raise ValueError("Filename must be provided to determine file type")
+        if not content:
+             raise ValueError("File content cannot be empty")
             
         try:
-            # Extract text based on file type
-            if self.file_path.endswith('.pdf'):
-                self.text = self.pdf_processor.extract_text(self.file_path)
-            elif self.file_path.endswith('.docx'):
-                doc = Document(self.file_path)
+            # Extract text based on the provided filename
+            if filename.endswith('.pdf'):
+                # Assuming pdf_processor needs a path, save content temporarily?
+                # Or modify pdf_processor to accept bytes?
+                # TEMPORARY WORKAROUND: Save bytes to temp file (Not ideal for concurrent requests!)
+                # A better solution would be to modify PDFProcessor to accept bytes.
+                temp_file_path = f"/tmp/{filename}" # Use /tmp dir if available
+                try:
+                    with open(temp_file_path, "wb") as f:
+                        f.write(content)
+                    self.text = self.pdf_processor.extract_text(temp_file_path)
+                finally:
+                    if os.path.exists(temp_file_path):
+                         os.remove(temp_file_path)
+
+            elif filename.endswith('.docx'):
+                # python-docx can read from a file-like object (BytesIO)
+                import io
+                doc = Document(io.BytesIO(content))
                 self.text = '\n'.join([paragraph.text for paragraph in doc.paragraphs])
             else:
                 raise ValueError("Unsupported file type. Please upload a PDF or DOCX file.")
 
-            # Extract information
+            # Extract information using self.text
             self._extract_skills()
             self._extract_experience()
             self._extract_education()
-            self._extract_contact_info()
+            # self._extract_contact_info() # Assuming this also uses self.text
 
             return {
                 "text": self.text,
                 "skills": self.skills,
                 "experience": self.experience,
                 "education": self.education,
-                "contact_info": self.contact_info
+                # "contact_info": self.contact_info
             }
         except Exception as e:
-            print(f"Error parsing resume: {str(e)}")
+            print(f"Error parsing resume content for {filename}: {str(e)}")
+            # Log the traceback for detailed debugging
+            import traceback
+            traceback.print_exc()
             raise
 
     def _extract_skills(self):
