@@ -39,7 +39,7 @@ interface ParsedResume {
 }
 
 const ResumeEditor: React.FC = () => {
-  const [resumes, setResumes] = useState<Resume[]>([]);
+  const [resumes, setResumes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openUploadDialog, setOpenUploadDialog] = useState(false);
@@ -232,17 +232,8 @@ const ResumeEditor: React.FC = () => {
               <List>
                 <ListItem>
                   <ListItemText
-                    primary={getMostRecentResume()?.name}
-                    secondary={`Uploaded: ${formatDate(getMostRecentResume()?.uploadedAt || '')}`}
+                    primary={getMostRecentResume()}
                   />
-                  <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleViewResume(getMostRecentResume()!)}>
-                      <Description />
-                    </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteResume(getMostRecentResume()?.id || '')}>
-                      <Delete />
-                    </IconButton>
-                  </ListItemSecondaryAction>
                 </ListItem>
               </List>
             </Paper>
@@ -261,17 +252,16 @@ const ResumeEditor: React.FC = () => {
               </Button>
             </Box>
             <List>
-              {resumes.map((resume) => (
-                <ListItem key={resume.id}>
+              {resumes.map((filename) => (
+                <ListItem key={filename}>
                   <ListItemText
-                    primary={resume.name}
-                    secondary={`Uploaded: ${formatDate(resume.uploadedAt)}`}
+                    primary={filename}
                   />
                   <ListItemSecondaryAction>
-                    <IconButton edge="end" onClick={() => handleViewResume(resume)}>
+                    <IconButton edge="end" onClick={() => handleViewResume({ name: filename, id: filename, path: '', uploadedAt: '' })}>
                       <Description />
                     </IconButton>
-                    <IconButton edge="end" onClick={() => handleDeleteResume(resume.id)}>
+                    <IconButton edge="end" onClick={() => handleDeleteResume(filename)}>
                       <Delete />
                     </IconButton>
                   </ListItemSecondaryAction>

@@ -98,6 +98,61 @@ interface JobMatchesProps {
   onAddMilestone: (milestone: any) => void;
 }
 
+// Fetches the text of the most recent resume from the backend
+async function getCurrentResumeText(): Promise<string | null> {
+  console.log("Attempting to retrieve most recent resume text from backend...");
+  try {
+    // 1. Fetch the list of resume filenames
+    const listResponse = await fetch(`${API_BASE_URL}/resumes`);
+    if (!listResponse.ok) {
+      console.error("Failed to fetch resume list:", listResponse.status);
+      return null;
+    }
+    const listData = await listResponse.json();
+    console.log("[getCurrentResumeText] Raw list data from /resumes:", JSON.stringify(listData)); // DEBUG LOG
+    
+    // Check if the list exists and has filenames
+    if (!listData || !Array.isArray(listData.resumes) || listData.resumes.length === 0) {
+      console.warn("[getCurrentResumeText] No resumes found or invalid format in listData.resumes.");
+      return null;
+    }
+    
+    // 2. Get the filename of the most recent resume (assuming first in list)
+    const resumeFilename = listData.resumes[0]; 
+    console.log("[getCurrentResumeText] Extracted filename (listData.resumes[0]):", resumeFilename); // DEBUG LOG
+
+    if (!resumeFilename || typeof resumeFilename !== 'string') {
+        console.error("[getCurrentResumeText] Could not identify a valid string filename. Value was:", resumeFilename);
+        return null;
+    }
+    console.log(`[getCurrentResumeText] Proceeding to fetch content for filename: ${resumeFilename}`);
+
+    // 3. Fetch the specific resume content using the filename
+    const encodedFilename = encodeURIComponent(resumeFilename);
+    console.log(`[getCurrentResumeText] Fetching: /resumes/${encodedFilename}`); // DEBUG LOG
+    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${encodedFilename}`); // Ensure filename is URL encoded
+    if (!contentResponse.ok) {
+        console.error(`Failed to fetch content for resume ${resumeFilename}:`, contentResponse.status);
+        return null;
+    }
+    const contentData = await contentResponse.json();
+
+    // 4. Extract the parsed text
+    // Assuming backend returns { parsed_data: { text: "..." } }
+    if (contentData && contentData.parsed_data && typeof contentData.parsed_data.text === 'string') {
+      console.log("Successfully retrieved resume text from backend.");
+      return contentData.parsed_data.text;
+    } else {
+      console.warn("Parsed resume text not found in the backend response for filename:", resumeFilename, "Response structure:", contentData);
+      return null;
+    }
+
+  } catch (error) {
+    console.error("Error retrieving resume text:", error);
+    return null;
+  }
+}
+
 const AddJobDialog: React.FC<AddJobDialogProps> = ({ open, onClose, onAdd }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -347,16 +402,16 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
     // Calculate match score if not already calculated
     if (!jobScores[job.id]) {
       try {
-        // TODO: Get the actual resume text content before this call
-        const currentResumeText = "/* Get current resume text here */"; // Replace with actual resume text retrieval
+        // Call the placeholder function to get resume text
+        const currentResumeText = await getCurrentResumeText(); 
         
-        if (!currentResumeText || currentResumeText === "/* Get current resume text here */") {
+        if (!currentResumeText) { // Check if text was retrieved
           console.warn("Resume text not available, skipping match score calculation.");
-          // Optionally set score to a specific value like -1 or null to indicate missing resume
-          setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Example: set score to -1
+          setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Indicate missing resume
           return; // Don't make the fetch call if no resume text
         }
 
+        // Proceed with the fetch call using the retrieved text
         const response = await fetch(`${API_BASE_URL}/jobs/${job.id}/match`, {
           method: 'POST',
           headers: {
@@ -365,6 +420,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
           },
           body: JSON.stringify({ resume_text: currentResumeText })
         });
+
         if (!response.ok) {
            const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error response' }));
            throw new Error(errorData.detail || `Failed to calculate match score: ${response.status}`);
@@ -376,8 +432,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
         }));
       } catch (err) {
         console.error('Error calculating match score:', err);
-        // Set score to indicate error, e.g., -1 or null
-        setJobScores(prev => ({ ...prev, [job.id]: -1 })); 
+        setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Indicate error
       }
     }
   };
@@ -433,17 +488,30 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleTailorResume = async (jobId: string) => {
     try {
       setLoadingFeature('resume');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/tailor-resume`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('No resume found. Please upload a resume first.');
-        }
-        throw new Error('Failed to tailor resume');
+        // Use status code for more specific error messages if needed
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to tailor resume' }));
+        throw new Error(errorData.detail || `Failed to tailor resume: ${response.status}`);
       }
+
       const data = await response.json();
-      setTailoredResume(data);
+      setTailoredResume(data); // Assuming backend returns the tailored resume structure
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(1); // Switch to the Tailored Resume tab
     } catch (error) {
@@ -457,17 +525,29 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateCoverLetter = async (jobId: string) => {
     try {
       setLoadingFeature('coverLetter');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-cover-letter`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('No resume found. Please upload a resume first.');
-        }
-        throw new Error('Failed to generate cover letter');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate cover letter' }));
+        throw new Error(errorData.detail || `Failed to generate cover letter: ${response.status}`);
       }
+
       const data = await response.json();
-      setCoverLetter(data.coverLetter);
+      setCoverLetter(data.cover_letter); // Assuming backend returns { cover_letter: "..." }
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(2); // Switch to the Cover Letter tab
     } catch (error) {
@@ -481,18 +561,36 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateRoadmap = async (jobId: string) => {
     try {
       setLoadingFeature('roadmap');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-roadmap`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        throw new Error('Failed to generate roadmap');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate roadmap' }));
+        throw new Error(errorData.detail || `Failed to generate roadmap: ${response.status}`);
       }
+
       const data = await response.json();
-      setRoadmap(data.roadmap);
+      // Assuming backend returns { roadmap: [...] }
+      setRoadmap(Array.isArray(data.roadmap) ? data.roadmap : []); 
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
+      // Optionally switch to roadmap tab if it exists
+      // setActiveTab(3); 
     } catch (error) {
       console.error('Error generating roadmap:', error);
-      setError('Failed to generate roadmap');
+      setError(error instanceof Error ? error.message : 'Failed to generate roadmap');
     } finally {
       setLoadingFeature(null);
     }
@@ -833,11 +931,14 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                   
                   <Typography variant="h6" gutterBottom>Requirements</Typography>
                   <List>
-                    {(selectedJob.requirements || []).map((req, index) => (
-                      <ListItem key={index} sx={{ py: 0 }}>
-                        <Typography>• {req}</Typography>
-                      </ListItem>
-                    ))}
+                    {Array.isArray(selectedJob.requirements)
+                      ? selectedJob.requirements.map((req, index) => (
+                          <ListItem key={index} sx={{ py: 0 }}>
+                            <Typography>• {req}</Typography>
+                          </ListItem>
+                        ))
+                      : <ListItem><Typography variant="body2" color="text.secondary">No requirements listed.</Typography></ListItem> /* Handle non-array case */
+                    }
                   </List>
                   
                   <Box sx={{ mt: 2 }}>

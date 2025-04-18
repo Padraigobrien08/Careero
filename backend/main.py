@@ -432,12 +432,13 @@ async def get_resume_endpoint(request: Request, resume_id: str):
         # Returning parsed content as example
         with open(file_path, "rb") as f:
             content = f.read()
-        parsed_data = local_resume_parser.parse(content, resume_id) # Adjust method if needed
+        # Pass only the content to the parse method
+        parsed_data = local_resume_parser.parse(content) # Assuming parse only needs content
+        # Return a structure consistent with what getCurrentResumeText expects
         return {"filename": resume_id, "parsed_data": parsed_data}
-        # Or to return the file: return FileResponse(file_path)
     except Exception as e:
         logger.exception(f"Error getting resume {resume_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get resume")
+        raise HTTPException(status_code=500, detail=f"Failed to get resume")
 
 
 @app.delete("/resumes/{resume_id}")
@@ -479,9 +480,9 @@ async def upload_resume_endpoint(file: UploadFile = File(...)):
              except Exception as clean_e: logger.error(f"Error cleaning up partial file {safe_filename}: {clean_e}")
         raise HTTPException(status_code=500, detail="Failed to save uploaded resume")
     finally:
-         # Ensure the file object is closed
+         # Ensure the file object is closed (and awaited)
          if hasattr(file, 'close') and callable(file.close):
-             file.close()
+             await file.close()
 
 
 @app.post("/jobs")
