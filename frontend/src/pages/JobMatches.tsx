@@ -98,6 +98,58 @@ interface JobMatchesProps {
   onAddMilestone: (milestone: any) => void;
 }
 
+// Fetches the text of the most recent resume from the backend
+async function getCurrentResumeText(): Promise<string | null> {
+  console.log("Attempting to retrieve most recent resume text from backend...");
+  try {
+    // 1. Fetch the list of resumes
+    const listResponse = await fetch(`${API_BASE_URL}/resumes`);
+    if (!listResponse.ok) {
+      console.error("Failed to fetch resume list:", listResponse.status);
+      return null;
+    }
+    const listData = await listResponse.json();
+    
+    // Check if the list exists and has items
+    // Assuming the backend returns { resumes: [...] } based on ResumeEditor.tsx
+    if (!listData || !Array.isArray(listData.resumes) || listData.resumes.length === 0) {
+      console.warn("No resumes found in the list from backend.");
+      return null;
+    }
+    
+    // 2. Get the ID of the most recent resume (assuming first in list)
+    const mostRecentResume = listData.resumes[0];
+    if (!mostRecentResume || !mostRecentResume.id) {
+        console.error("Could not identify the most recent resume ID.");
+        return null;
+    }
+    const resumeId = mostRecentResume.id;
+    console.log(`Found most recent resume ID: ${resumeId}`);
+
+    // 3. Fetch the specific resume content
+    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${resumeId}`);
+    if (!contentResponse.ok) {
+        console.error(`Failed to fetch content for resume ${resumeId}:`, contentResponse.status);
+        return null;
+    }
+    const contentData = await contentResponse.json();
+
+    // 4. Extract the parsed text
+    // Assuming backend returns { parsed_content: { text: "..." } } based on ResumeEditor.tsx
+    if (contentData && contentData.parsed_content && typeof contentData.parsed_content.text === 'string') {
+      console.log("Successfully retrieved resume text from backend.");
+      return contentData.parsed_content.text;
+    } else {
+      console.warn("Parsed resume text not found in the backend response for ID:", resumeId);
+      return null;
+    }
+
+  } catch (error) {
+    console.error("Error retrieving resume text:", error);
+    return null;
+  }
+}
+
 const AddJobDialog: React.FC<AddJobDialogProps> = ({ open, onClose, onAdd }) => {
   const [formData, setFormData] = useState({
     title: '',
@@ -347,16 +399,16 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
     // Calculate match score if not already calculated
     if (!jobScores[job.id]) {
       try {
-        // TODO: Get the actual resume text content before this call
-        const currentResumeText = "/* Get current resume text here */"; // Replace with actual resume text retrieval
+        // Call the placeholder function to get resume text
+        const currentResumeText = await getCurrentResumeText(); 
         
-        if (!currentResumeText || currentResumeText === "/* Get current resume text here */") {
+        if (!currentResumeText) { // Check if text was retrieved
           console.warn("Resume text not available, skipping match score calculation.");
-          // Optionally set score to a specific value like -1 or null to indicate missing resume
-          setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Example: set score to -1
+          setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Indicate missing resume
           return; // Don't make the fetch call if no resume text
         }
 
+        // Proceed with the fetch call using the retrieved text
         const response = await fetch(`${API_BASE_URL}/jobs/${job.id}/match`, {
           method: 'POST',
           headers: {
@@ -365,6 +417,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
           },
           body: JSON.stringify({ resume_text: currentResumeText })
         });
+
         if (!response.ok) {
            const errorData = await response.json().catch(() => ({ detail: 'Failed to parse error response' }));
            throw new Error(errorData.detail || `Failed to calculate match score: ${response.status}`);
@@ -376,8 +429,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
         }));
       } catch (err) {
         console.error('Error calculating match score:', err);
-        // Set score to indicate error, e.g., -1 or null
-        setJobScores(prev => ({ ...prev, [job.id]: -1 })); 
+        setJobScores(prev => ({ ...prev, [job.id]: -1 })); // Indicate error
       }
     }
   };
@@ -833,11 +885,14 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                   
                   <Typography variant="h6" gutterBottom>Requirements</Typography>
                   <List>
-                    {(selectedJob.requirements || []).map((req, index) => (
-                      <ListItem key={index} sx={{ py: 0 }}>
-                        <Typography>• {req}</Typography>
-                      </ListItem>
-                    ))}
+                    {Array.isArray(selectedJob.requirements)
+                      ? selectedJob.requirements.map((req, index) => (
+                          <ListItem key={index} sx={{ py: 0 }}>
+                            <Typography>• {req}</Typography>
+                          </ListItem>
+                        ))
+                      : <ListItem><Typography variant="body2" color="text.secondary">No requirements listed.</Typography></ListItem> /* Handle non-array case */
+                    }
                   </List>
                   
                   <Box sx={{ mt: 2 }}>
