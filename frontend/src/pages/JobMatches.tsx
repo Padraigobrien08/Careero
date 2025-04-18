@@ -676,12 +676,6 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
 
   return (
     <Box sx={{ p: 3, width: '100%', maxWidth: 'none' }}>
-      {/* Add console logs here for debugging state */}
-      {console.log("[Render] ActiveTab:", activeTab)}
-      {console.log("[Render] TailoredResume State:", JSON.stringify(tailoredResume))}
-      {console.log("[Render] CoverLetter State:", coverLetter)}
-      {console.log("[Render] Roadmap State:", JSON.stringify(roadmap))}
-
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4">
           {isSearchMode ? 'Search Results' : 'Top 25 Job Matches'}
