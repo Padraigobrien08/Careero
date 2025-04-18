@@ -109,23 +109,28 @@ async function getCurrentResumeText(): Promise<string | null> {
       return null;
     }
     const listData = await listResponse.json();
+    console.log("[getCurrentResumeText] Raw list data from /resumes:", JSON.stringify(listData)); // DEBUG LOG
     
     // Check if the list exists and has filenames
     if (!listData || !Array.isArray(listData.resumes) || listData.resumes.length === 0) {
-      console.warn("No resumes found in the list from backend.");
+      console.warn("[getCurrentResumeText] No resumes found or invalid format in listData.resumes.");
       return null;
     }
     
     // 2. Get the filename of the most recent resume (assuming first in list)
     const resumeFilename = listData.resumes[0]; 
+    console.log("[getCurrentResumeText] Extracted filename (listData.resumes[0]):", resumeFilename); // DEBUG LOG
+
     if (!resumeFilename || typeof resumeFilename !== 'string') {
-        console.error("Could not identify the most recent resume filename.");
+        console.error("[getCurrentResumeText] Could not identify a valid string filename. Value was:", resumeFilename);
         return null;
     }
-    console.log(`Found most recent resume filename: ${resumeFilename}`);
+    console.log(`[getCurrentResumeText] Proceeding to fetch content for filename: ${resumeFilename}`);
 
     // 3. Fetch the specific resume content using the filename
-    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${encodeURIComponent(resumeFilename)}`); // Ensure filename is URL encoded
+    const encodedFilename = encodeURIComponent(resumeFilename);
+    console.log(`[getCurrentResumeText] Fetching: /resumes/${encodedFilename}`); // DEBUG LOG
+    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${encodedFilename}`); // Ensure filename is URL encoded
     if (!contentResponse.ok) {
         console.error(`Failed to fetch content for resume ${resumeFilename}:`, contentResponse.status);
         return null;
