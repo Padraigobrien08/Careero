@@ -487,39 +487,28 @@ async def upload_resume_endpoint(file: UploadFile = File(...)):
 
 @app.post("/jobs")
 async def add_job_endpoint(request: Request, job: AddJobRequest):
-     local_job_matcher = getattr(request.app.state, 'job_matcher', None)
+     # local_job_matcher = getattr(request.app.state, 'job_matcher', None) # We don't need matcher for adding to state only
      jobs_in_memory = getattr(request.app.state, 'jobs_data', None) # Get the list itself
 
-     if not local_job_matcher: raise HTTPException(503, "JobMatcher unavailable.")
+     # if not local_job_matcher: raise HTTPException(503, "JobMatcher unavailable.") # No longer needed for this approach
      if jobs_in_memory is None: raise HTTPException(503, "Job data state unavailable.") # Check if list exists
 
      logger.info(f"Adding new job: {job.title}")
      try:
-        # Add to JobMatcher (assuming it has an add_job method)
         new_job_data = job.dict()
         new_job_data['id'] = str(uuid.uuid4()) # Assign a new ID
         # Add default values if missing
         new_job_data.setdefault('postedDate', datetime.now().strftime('%Y-%m-%d'))
-        new_job_data.setdefault('similarityScore', 0.0)
+        new_job_data.setdefault('similarityScore', 0.0) # Default score
 
         # --- State Update Strategy ---
-        # Option 1: Add to both JobMatcher's internal df AND app.state.jobs_data
-        # This requires JobMatcher to expose an 'add_job' that also returns the dict
-        added_job_dict = local_job_matcher.add_job(new_job_data) # Assumes this method exists & returns dict
-        if added_job_dict:
-            jobs_in_memory.append(added_job_dict) # Append to the list in app.state
-            logger.info(f"Added job {added_job_dict['id']} to JobMatcher and app.state.jobs_data")
-            # Consider saving back to CSV - requires JobMatcher method
-            # local_job_matcher.save_jobs()
-            return added_job_dict
-        else:
-            logger.error("Failed to add job via JobMatcher method.")
-            raise HTTPException(500, "Failed to add job internally")
-
-        # Option 2: Only add to app.state.jobs_data, JobMatcher becomes stale until restart
-        # jobs_in_memory.append(new_job_data)
-        # logger.warning(f"Added job {new_job_data['id']} to app.state.jobs_data ONLY. JobMatcher is now potentially stale.")
-        # return new_job_data
+        # Directly append to the list in app.state
+        jobs_in_memory.append(new_job_data)
+        logger.warning(f"Added job {new_job_data['id']} to app.state.jobs_data ONLY. JobMatcher/similarity scores may be stale until restart.")
+        # Consider logging or a mechanism to save back to CSV eventually if needed
+        
+        # Return the newly created job data
+        return new_job_data
 
      except Exception as e:
         logger.exception(f"Error adding job {job.title}: {e}")
