@@ -102,7 +102,7 @@ interface JobMatchesProps {
 async function getCurrentResumeText(): Promise<string | null> {
   console.log("Attempting to retrieve most recent resume text from backend...");
   try {
-    // 1. Fetch the list of resumes
+    // 1. Fetch the list of resume filenames
     const listResponse = await fetch(`${API_BASE_URL}/resumes`);
     if (!listResponse.ok) {
       console.error("Failed to fetch resume list:", listResponse.status);
@@ -110,37 +110,35 @@ async function getCurrentResumeText(): Promise<string | null> {
     }
     const listData = await listResponse.json();
     
-    // Check if the list exists and has items
-    // Assuming the backend returns { resumes: [...] } based on ResumeEditor.tsx
+    // Check if the list exists and has filenames
     if (!listData || !Array.isArray(listData.resumes) || listData.resumes.length === 0) {
       console.warn("No resumes found in the list from backend.");
       return null;
     }
     
-    // 2. Get the ID of the most recent resume (assuming first in list)
-    const mostRecentResume = listData.resumes[0];
-    if (!mostRecentResume || !mostRecentResume.id) {
-        console.error("Could not identify the most recent resume ID.");
+    // 2. Get the filename of the most recent resume (assuming first in list)
+    const resumeFilename = listData.resumes[0]; 
+    if (!resumeFilename || typeof resumeFilename !== 'string') {
+        console.error("Could not identify the most recent resume filename.");
         return null;
     }
-    const resumeId = mostRecentResume.id;
-    console.log(`Found most recent resume ID: ${resumeId}`);
+    console.log(`Found most recent resume filename: ${resumeFilename}`);
 
-    // 3. Fetch the specific resume content
-    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${resumeId}`);
+    // 3. Fetch the specific resume content using the filename
+    const contentResponse = await fetch(`${API_BASE_URL}/resumes/${encodeURIComponent(resumeFilename)}`); // Ensure filename is URL encoded
     if (!contentResponse.ok) {
-        console.error(`Failed to fetch content for resume ${resumeId}:`, contentResponse.status);
+        console.error(`Failed to fetch content for resume ${resumeFilename}:`, contentResponse.status);
         return null;
     }
     const contentData = await contentResponse.json();
 
     // 4. Extract the parsed text
-    // Assuming backend returns { parsed_content: { text: "..." } } based on ResumeEditor.tsx
-    if (contentData && contentData.parsed_content && typeof contentData.parsed_content.text === 'string') {
+    // Assuming backend returns { parsed_data: { text: "..." } }
+    if (contentData && contentData.parsed_data && typeof contentData.parsed_data.text === 'string') {
       console.log("Successfully retrieved resume text from backend.");
-      return contentData.parsed_content.text;
+      return contentData.parsed_data.text;
     } else {
-      console.warn("Parsed resume text not found in the backend response for ID:", resumeId);
+      console.warn("Parsed resume text not found in the backend response for filename:", resumeFilename, "Response structure:", contentData);
       return null;
     }
 
@@ -485,17 +483,30 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleTailorResume = async (jobId: string) => {
     try {
       setLoadingFeature('resume');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/tailor-resume`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('No resume found. Please upload a resume first.');
-        }
-        throw new Error('Failed to tailor resume');
+        // Use status code for more specific error messages if needed
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to tailor resume' }));
+        throw new Error(errorData.detail || `Failed to tailor resume: ${response.status}`);
       }
+
       const data = await response.json();
-      setTailoredResume(data);
+      setTailoredResume(data); // Assuming backend returns the tailored resume structure
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(1); // Switch to the Tailored Resume tab
     } catch (error) {
@@ -509,17 +520,29 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateCoverLetter = async (jobId: string) => {
     try {
       setLoadingFeature('coverLetter');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-cover-letter`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('No resume found. Please upload a resume first.');
-        }
-        throw new Error('Failed to generate cover letter');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate cover letter' }));
+        throw new Error(errorData.detail || `Failed to generate cover letter: ${response.status}`);
       }
+
       const data = await response.json();
-      setCoverLetter(data.coverLetter);
+      setCoverLetter(data.cover_letter); // Assuming backend returns { cover_letter: "..." }
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
       setActiveTab(2); // Switch to the Cover Letter tab
     } catch (error) {
@@ -533,18 +556,36 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
   const handleGenerateRoadmap = async (jobId: string) => {
     try {
       setLoadingFeature('roadmap');
+      setError(null); // Clear previous errors
+
+      // Fetch resume text first
+      const currentResumeText = await getCurrentResumeText();
+      if (!currentResumeText) {
+        throw new Error('Could not retrieve resume text. Please ensure a resume is uploaded.');
+      }
+
       const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/generate-roadmap`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume_text: currentResumeText })
       });
+
       if (!response.ok) {
-        throw new Error('Failed to generate roadmap');
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to generate roadmap' }));
+        throw new Error(errorData.detail || `Failed to generate roadmap: ${response.status}`);
       }
+
       const data = await response.json();
-      setRoadmap(data.roadmap);
+      // Assuming backend returns { roadmap: [...] }
+      setRoadmap(Array.isArray(data.roadmap) ? data.roadmap : []); 
       setSelectedJob(jobs.find(job => job.id === jobId) || null);
+      // Optionally switch to roadmap tab if it exists
+      // setActiveTab(3); 
     } catch (error) {
       console.error('Error generating roadmap:', error);
-      setError('Failed to generate roadmap');
+      setError(error instanceof Error ? error.message : 'Failed to generate roadmap');
     } finally {
       setLoadingFeature(null);
     }
