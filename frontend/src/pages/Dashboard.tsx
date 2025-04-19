@@ -118,16 +118,16 @@ const Dashboard: React.FC = () => {
             // Get most recent resume (should be first in list)
             const mostRecentResume = data.resumes[0];
             
-            // Then fetch the specific resume content
-            const resumeResponse = await fetch(`${API_BASE_URL}/resumes/${mostRecentResume.id}`);
+            // Then fetch the specific resume content using the filename
+            const resumeResponse = await fetch(`${API_BASE_URL}/resumes/${encodeURIComponent(mostRecentResume)}`);
             if (resumeResponse.ok) {
               const resumeData = await resumeResponse.json();
               if (resumeData.parsed_data) {
                 // Transform the parsed content to match our expected Resume interface
                 const transformedData = {
-                  name: resumeData.parsed_data.name || "Your Name",
-                  email: resumeData.parsed_data.email || "email@example.com",
-                  phone: resumeData.parsed_data.phone || "123-456-7890",
+                  name: "Resume Preview",
+                  email: "",
+                  phone: "",
                   experience: resumeData.parsed_data.experience || [],
                   education: resumeData.parsed_data.education || [],
                   skills: resumeData.parsed_data.skills || []
