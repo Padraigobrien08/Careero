@@ -779,13 +779,23 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
                 Match Score: {(newlyAddedJob.similarityScore * 100).toFixed(1)}%
               </Typography>
             </Box>
-            <Button 
-              variant="outlined" 
-              onClick={() => setShowNewJob(false)}
-              startIcon={<Close />}
-            >
-              Close
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1}}>
+              <IconButton 
+                edge="end" 
+                aria-label="view job" 
+                onClick={() => handleViewJob(newlyAddedJob!)}
+              >
+                <Visibility />
+              </IconButton>
+              <Button 
+                variant="outlined" 
+                size="small"
+                onClick={() => setShowNewJob(false)}
+                startIcon={<Close />}
+              >
+                Dismiss
+              </Button>
+            </Box>
           </Box>
         </Paper>
       )}
