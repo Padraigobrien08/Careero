@@ -1072,59 +1072,66 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
               )}
               
               {/* Roadmap Tab */}
-              {activeTab === 3 && roadmap && roadmap.length > 0 && (
+              {activeTab === 3 && roadmap && (
                 <Box sx={{ mt: 1 }}>
-                  <Typography variant="h6" gutterBottom>
-                    Development Roadmap for {selectedJob.title}
-                  </Typography>
-                  <Grid container spacing={3}>
-                    {roadmap.map((milestone, index) => (
-                      <Grid item xs={12} sm={6} key={index}>
-                        <Card>
-                          <CardContent>
-                            <Typography variant="h6" gutterBottom>
-                              {milestone.title}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" paragraph>
-                              {milestone.description}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" paragraph>
-                              Timeframe: {milestone.targetDate}
-                            </Typography>
-                            <Box sx={{ mb: 2 }}>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Skills to Develop:
-                              </Typography>
-                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                {milestone.skills.map((skill, i) => (
-                                  <Chip key={i} label={skill} size="small" />
-                                ))}
-                              </Box>
-                            </Box>
-                            <Box>
-                              <Typography variant="subtitle2" gutterBottom>
-                                Resources:
-                              </Typography>
-                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                                {milestone.resources.map((resource, i) => (
-                                  <Chip key={i} label={resource} size="small" variant="outlined" />
-                                ))}
-                              </Box>
-                            </Box>
-                          </CardContent>
-                          <CardActions>
-                            <Button
-                              startIcon={<AddIcon />}
-                              onClick={() => handleAddToRoadmap(milestone, true)}
-                            >
-                              Add to Career Roadmap
-                            </Button>
-                          </CardActions>
-                        </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                </Box>
+                   {/* {console.log("[Render Tab 3] Roadmap State:", JSON.stringify(roadmap))} */}
+                   {roadmap.length > 0 ? (
+                     <>
+                       <Typography variant="h6" gutterBottom>
+                         Development Roadmap for {selectedJob.title} 
+                       </Typography>
+                       <Grid container spacing={3}>
+                         {roadmap.map((milestone, index) => (
+                           <Grid item xs={12} sm={6} key={index}>
+                             <Card>
+                               <CardContent>
+                                 <Typography variant="h6" gutterBottom>
+                                   {milestone.title}
+                                 </Typography>
+                                 <Typography variant="body2" color="text.secondary" paragraph>
+                                   {milestone.description}
+                                 </Typography>
+                                 <Typography variant="body2" color="text.secondary" paragraph>
+                                   Timeframe: {milestone.targetDate}
+                                 </Typography>
+                                 <Box sx={{ mb: 2 }}>
+                                   <Typography variant="subtitle2" gutterBottom>
+                                     Skills to Develop:
+                                   </Typography>
+                                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                     {milestone.skills.map((skill, i) => (
+                                       <Chip key={i} label={skill} size="small" />
+                                     ))}
+                                   </Box>
+                                 </Box>
+                                 <Box>
+                                   <Typography variant="subtitle2" gutterBottom>
+                                     Resources:
+                                   </Typography>
+                                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                     {milestone.resources.map((resource, i) => (
+                                       <Chip key={i} label={resource} size="small" variant="outlined" />
+                                     ))}
+                                   </Box>
+                                 </Box>
+                               </CardContent>
+                               <CardActions>
+                                 <Button
+                                   startIcon={<AddIcon />}
+                                   onClick={() => handleAddToRoadmap(milestone, true)}
+                                 >
+                                   Add to Career Roadmap
+                                 </Button>
+                               </CardActions>
+                             </Card>
+                           </Grid>
+                         ))}
+                       </Grid>
+                     </>
+                   ) : (
+                     <Typography>No roadmap generated or roadmap is empty.</Typography>
+                   )}
+                 </Box>
               )}
               
               {/* Loading State */}
