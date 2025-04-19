@@ -122,15 +122,15 @@ const Dashboard: React.FC = () => {
             const resumeResponse = await fetch(`${API_BASE_URL}/resumes/${mostRecentResume.id}`);
             if (resumeResponse.ok) {
               const resumeData = await resumeResponse.json();
-              if (resumeData.parsed_content) {
+              if (resumeData.parsed_data) {
                 // Transform the parsed content to match our expected Resume interface
                 const transformedData = {
-                  name: resumeData.parsed_content.name || "Your Name",
-                  email: resumeData.parsed_content.email || "email@example.com",
-                  phone: resumeData.parsed_content.phone || "123-456-7890",
-                  experience: resumeData.parsed_content.experience || [],
-                  education: resumeData.parsed_content.education || [],
-                  skills: resumeData.parsed_content.skills || []
+                  name: resumeData.parsed_data.name || "Your Name",
+                  email: resumeData.parsed_data.email || "email@example.com",
+                  phone: resumeData.parsed_data.phone || "123-456-7890",
+                  experience: resumeData.parsed_data.experience || [],
+                  education: resumeData.parsed_data.education || [],
+                  skills: resumeData.parsed_data.skills || []
                 };
                 
                 setResume(transformedData);

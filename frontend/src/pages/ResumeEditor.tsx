@@ -168,7 +168,7 @@ const ResumeEditor: React.FC = () => {
       }
       
       const data = await response.json();
-      setParsedResume(data.parsed_content);
+      setParsedResume(data.parsed_data);
       setOpenPreviewDialog(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to view resume');
