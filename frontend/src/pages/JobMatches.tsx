@@ -547,8 +547,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
 
       const data = await response.json();
       console.log("!!! handleTailorResume: Data Received !!!", data); // Simplified log
-      setTailoredResume(data); // Assuming backend returns the tailored resume structure
-      setSelectedJob(jobs.find(job => job.id === jobId) || null);
+      setTailoredResume(data); // Set the tailored data
       setActiveTab(1); // Switch to the Tailored Resume tab
     } catch (error) {
       console.error('Error tailoring resume:', error);
@@ -583,8 +582,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const data = await response.json();
-      setCoverLetter(data.cover_letter); // Assuming backend returns { cover_letter: "..." }
-      setSelectedJob(jobs.find(job => job.id === jobId) || null);
+      setCoverLetter(data.cover_letter); // Set the cover letter data
       setActiveTab(2); // Switch to the Cover Letter tab
     } catch (error) {
       console.error('Error generating cover letter:', error);
@@ -619,9 +617,7 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const data = await response.json();
-      // Assuming backend returns { roadmap: [...] }
-      setRoadmap(Array.isArray(data.roadmap) ? data.roadmap : []); 
-      setSelectedJob(jobs.find(job => job.id === jobId) || null);
+      setRoadmap(Array.isArray(data.roadmap) ? data.roadmap : []); // Set the roadmap data
       setActiveTab(3); // Switch to the Roadmap tab
     } catch (error) {
       console.error('Error generating roadmap:', error);
