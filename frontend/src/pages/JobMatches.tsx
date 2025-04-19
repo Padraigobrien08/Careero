@@ -351,12 +351,12 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       setIsSearching(true);
       setError(null);
       setIsSearchMode(true);
-      const response = await fetch(`${API_BASE_URL}/jobs/search?query=${encodeURIComponent(searchQuery)}`);
+      const response = await fetch(`${API_BASE_URL}/jobs?query=${encodeURIComponent(searchQuery)}`);
       if (!response.ok) {
         throw new Error('Failed to search jobs');
       }
       const data = await response.json();
-      setJobs(data.jobs.slice(0, MAX_JOBS)); // Limit search results too
+      setJobs(Array.isArray(data) ? data.slice(0, MAX_JOBS) : []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setJobs([]); // Set empty array on error
