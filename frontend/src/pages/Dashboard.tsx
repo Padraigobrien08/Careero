@@ -15,7 +15,8 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
-  Avatar 
+  Avatar,
+  Alert
 } from '@mui/material';
 import { 
   Description, 
@@ -242,10 +243,16 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <Box sx={{ flexGrow: 1, p: 3 }}>
+      {/* <Typography variant="h4" gutterBottom sx={{ mb: 3 }}>
         Dashboard
-      </Typography>
+      </Typography> */} 
+      
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
       
       <Grid 
         container 
