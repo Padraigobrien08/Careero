@@ -460,20 +460,54 @@ const JobMatches: React.FC<JobMatchesProps> = ({ onAddMilestone }) => {
       }
 
       const result = await response.json();
-      console.log("[handleAddJob] Received result:", result); // Add log to see the structure
+      console.log("[handleAddJob] Initial add result:", result);
 
-      // Create a new job object with the response data (access directly from result)
-      const newJob: Job = { 
-        id: result.id, // Access result.id directly
-        title: result.title, // Access result.title directly
-        company: result.company, // etc.
+      let calculatedScore = result.similarityScore ?? 0.0; // Start with default score
+
+      // --- Attempt to calculate similarity score immediately ---
+      try {
+          const currentResumeText = await getCurrentResumeText();
+          if (currentResumeText && result.id) { // Check if we have resume and new job ID
+              console.log(`[handleAddJob] Attempting to calculate score for new job ${result.id}`);
+              const matchResponse = await fetch(`${API_BASE_URL}/jobs/${result.id}/match`, {
+                  method: 'POST',
+                  headers: {
+                      'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ resume_text: currentResumeText })
+              });
+
+              if (matchResponse.ok) {
+                  const matchData = await matchResponse.json();
+                  console.log("[handleAddJob] Score calculation result:", matchData);
+                  if (typeof matchData.similarity_score === 'number') {
+                      calculatedScore = matchData.similarity_score; // Use the calculated score
+                  }
+              } else {
+                   console.warn(`[handleAddJob] Score calculation failed: ${matchResponse.status}`);
+              }
+          } else {
+               console.warn("[handleAddJob] Skipping score calculation: Missing resume text or job ID.");
+          }
+      } catch (scoreError) {
+           console.error("[handleAddJob] Error during score calculation:", scoreError);
+      }
+      // --- End score calculation attempt ---
+
+      // Create a new job object with the response data and potentially updated score
+      const newJob: Job = {
+        id: result.id,
+        title: result.title,
+        company: result.company,
         location: result.location,
         salary: result.salary,
         description: result.description,
         requirements: Array.isArray(result.requirements) ? result.requirements : [],
         postedDate: result.postedDate,
-        similarityScore: result.similarityScore ?? 0.0 // Use nullish coalescing for default
+        similarityScore: calculatedScore // Use the calculated score here
       };
+
+      console.log("[handleAddJob] Final newJob object:", newJob);
 
       // Set the newly added job for the highlighted section
       setNewlyAddedJob(newJob);
